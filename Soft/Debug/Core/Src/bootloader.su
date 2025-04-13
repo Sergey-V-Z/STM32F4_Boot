@@ -1,0 +1,13 @@
+../Core/Src/bootloader.c:236:13:Bootloader_InitStatus	0	static
+../Core/Src/bootloader.c:252:13:Bootloader_EnterRecoveryMode	0	static
+../Core/Src/bootloader.c:419:16:Bootloader_ValidateApplication	0	static
+../Core/Src/bootloader.c:43:6:Bootloader_Init	8	static
+../Core/Src/bootloader.c:95:6:Bootloader_GetStatus	4	static
+../Core/Src/bootloader.c:108:6:Bootloader_ForceRecovery	8	static
+../Core/Src/bootloader.c:198:9:Bootloader_IsApplicationValid	8	static
+../Core/Src/bootloader.c:118:6:Bootloader_JumpToApplication	8	static,ignoring_inline_asm
+../Core/Src/bootloader.c:210:9:Bootloader_HandleFirmwareData	0	static
+../Core/Src/bootloader.c:222:9:Bootloader_FinalizeFirmwareUpdate	0	static
+../Core/Src/bootloader.c:481:9:Bootloader_CheckBackupFirmware	296	static
+../Core/Src/bootloader.c:277:13:Bootloader_ProcessState	16	static
+../Core/Src/bootloader.c:84:6:Bootloader_Run	8	static

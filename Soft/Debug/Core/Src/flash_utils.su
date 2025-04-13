@@ -1,0 +1,13 @@
+../Core/Src/flash_utils.c:25:19:FLASH_Utils_Unlock	8	static
+../Core/Src/flash_utils.c:35:19:FLASH_Utils_Lock	8	static
+../Core/Src/flash_utils.c:45:10:FLASH_Utils_GetSector	0	static
+../Core/Src/flash_utils.c:83:19:FLASH_Utils_EraseSector	32	static
+../Core/Src/flash_utils.c:107:19:FLASH_Utils_Write	24	static
+../Core/Src/flash_utils.c:137:19:FLASH_Utils_Read	8	static
+../Core/Src/flash_utils.c:150:19:FLASH_Utils_SetBootloaderKey	8	static
+../Core/Src/flash_utils.c:170:19:FLASH_Utils_ResetBootloaderKey	16	static
+../Core/Src/flash_utils.c:192:10:FLASH_Utils_ReadBootloaderKey	0	static
+../Core/Src/flash_utils.c:225:10:FLASH_Utils_ReadResetCounter	0	static
+../Core/Src/flash_utils.c:202:10:FLASH_Utils_IncrementResetCounter	16	static
+../Core/Src/flash_utils.c:241:19:FLASH_Utils_ResetResetCounter	8	static
+../Core/Src/flash_utils.c:262:9:FLASH_Utils_ValidateFirmware	24	static

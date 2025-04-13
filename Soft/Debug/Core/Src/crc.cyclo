@@ -1,0 +1,3 @@
+../Core/Src/crc.c:25:10:CRC_Calculate	4
+../Core/Src/crc.c:71:9:CRC_ValidateFirmware	2
+../Core/Src/crc.c:96:10:CRC_CalculateAndAppend	1

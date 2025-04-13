@@ -1,0 +1,15 @@
+../Core/Src/spi_flash.c:173:17:SPI_Flash_GetFirmwareAddress	2
+../Core/Src/spi_flash.c:186:17:SPI_Flash_GetFirmwareSize	2
+../Core/Src/spi_flash.c:33:9:SPI_Flash_Init	2
+../Core/Src/spi_flash.c:65:6:SPI_Flash_GetLayout	2
+../Core/Src/spi_flash.c:80:9:SPI_Flash_Read	2
+../Core/Src/spi_flash.c:99:9:SPI_Flash_Write	4
+../Core/Src/spi_flash.c:136:9:SPI_Flash_EraseSector	2
+../Core/Src/spi_flash.c:154:9:SPI_Flash_EraseBlock	2
+../Core/Src/spi_flash.c:200:9:SPI_Flash_ReadFirmwareMetadata	3
+../Core/Src/spi_flash.c:217:9:SPI_Flash_WriteFirmwareMetadata	3
+../Core/Src/spi_flash.c:236:9:SPI_Flash_ReadFirmware	8
+../Core/Src/spi_flash.c:274:9:SPI_Flash_WriteFirmware	8
+../Core/Src/spi_flash.c:317:9:SPI_Flash_VerifyFirmware	7
+../Core/Src/spi_flash.c:361:9:SPI_Flash_CopyFirmwareToInternal	16
+../Core/Src/spi_flash.c:481:9:SPI_Flash_CopyFirmwareFromInternal	6
