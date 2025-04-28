@@ -188,8 +188,8 @@ void W25QXX_WaitForWriteEnd(W25QXX_Device_t *device)
   * @retval 1 if successful, 0 if failed
   */
 uint8_t W25QXX_Init(W25QXX_Device_t *device, SPI_HandleTypeDef *hspi, uint32_t startAddr,
-		pins_spi_t ChipSelect, pins_spi_t WriteProtect,
-		pins_spi_t Hold, uint8_t UsedInOS)
+        pins_spi_t ChipSelect, pins_spi_t WriteProtect,
+        pins_spi_t Hold, uint8_t UsedInOS)
 {
     device->WriteProtect = WriteProtect;
     device->ChipSelect = ChipSelect;
@@ -379,34 +379,8 @@ uint8_t W25QXX_Init(W25QXX_Device_t *device, SPI_HandleTypeDef *hspi, uint32_t s
 
     W25QXX_ReadUniqID(device);
 
-#if (INIT_DEBUG == 1)
-    /*
-    snprintf(debug_buff, 64, "Page Size: %d Bytes\n", device->Info.PageSize);
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)debug_buff, strlen(debug_buff), 1000);
-
-    snprintf(debug_buff, 64, "Page Count: %lu\n", device->Info.PageCount);
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)debug_buff, strlen(debug_buff), 1000);
-
-    snprintf(debug_buff, 64, "Sector Size: %lu Bytes\n", device->Info.SectorSize);
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)debug_buff, strlen(debug_buff), 1000);
-
-    snprintf(debug_buff, 64, "Sector Count: %lu\n", device->Info.SectorCount);
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)debug_buff, strlen(debug_buff), 1000);
-
-    snprintf(debug_buff, 64, "Block Size: %lu Bytes\n", device->Info.BlockSize);
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)debug_buff, strlen(debug_buff), 1000);
-
-    snprintf(debug_buff, 64, "Block Count: %lu\n", device->Info.BlockCount);
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)debug_buff, strlen(debug_buff), 1000);
-
-    snprintf(debug_buff, 64, "Capacity: %lu KBytes\n", device->Info.CapacityInKiloByte);
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)debug_buff, strlen(debug_buff), 1000);
-
-    HAL_UART_Transmit(DEBUG_UART, (uint8_t*)"Init Done\n", 10, 1000);
-    */
-#endif
-
     device->Info.Lock = 0;
+    device->lastStatus = HAL_OK;
     return 1;
 }
 
@@ -1191,4 +1165,49 @@ void W25QXX_WriteSettings(W25QXX_Device_t *device, Settings_t settings)
     {
         W25QXX_WriteBlock(device, ptrData, 0, 0, sizeData);
     }
+}
+
+/**
+  * @brief  Проверяет данные на указанном адресе во внешней Flash
+  * @param  device: Указатель на устройство
+  * @param  address: Адрес для проверки
+  * @param  size: Размер данных для проверки (в байтах)
+  * @retval 1 если данные обнаружены (не все 0xFF), 0 если данные пустые
+  */
+uint8_t W25QXX_CheckDataAtAddress(W25QXX_Device_t *device, uint32_t address, uint32_t size)
+{
+    uint8_t buffer[32]; // Буфер для проверки данных
+    uint32_t checkSize = (size < sizeof(buffer)) ? size : sizeof(buffer);
+
+    // Чтение блока данных для проверки
+    W25QXX_ReadBytes(device, buffer, address, checkSize);
+
+    // Проверка содержимого
+    for (uint32_t i = 0; i < checkSize; i++) {
+        if (buffer[i] != 0xFF) {
+            return 1; // Найдены данные
+        }
+    }
+
+    return 0; // Данные пустые (все 0xFF)
+}
+
+/**
+  * @brief  Сбрасывает последнюю ошибку
+  * @param  device: Указатель на устройство
+  * @retval None
+  */
+void W25QXX_ClearLastStatus(W25QXX_Device_t *device)
+{
+    device->lastStatus = HAL_OK;
+}
+
+/**
+  * @brief  Возвращает последний статус операции
+  * @param  device: Указатель на устройство
+  * @retval HAL_StatusTypeDef: Последний статус операции
+  */
+HAL_StatusTypeDef W25QXX_GetLastStatus(W25QXX_Device_t *device)
+{
+    return device->lastStatus;
 }

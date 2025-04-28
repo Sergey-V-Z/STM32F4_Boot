@@ -1,0 +1,75 @@
+typedef struct {
+struct Bootloader_Status_t {
+Bootloader_State_t State; /* Current state of bootloader */
+uint32_t ErrorCode; /* Error code if any */
+uint32_t ResetCount; /* Number of consecutive resets */
+uint8_t IsAppValid; /* Is the application valid */
+uint8_t IsRecovery; /* Is in recovery mode */
+uint32_t LastFlashAddress; /* Last address flashed */
+uint32_t BytesFlashed; /* Number of bytes flashed */
+} status;
+
+struct AppMetadata_t {
+uint32_t firmwareSize; /* Size of firmware in bytes */
+uint32_t firmwareCRC; /* CRC of firmware */
+uint32_t firmwareVersion; /* Version number of firmware */
+uint32_t update; /* Flag indicating if app need update */
+uint32_t reserved; /* Reserved for future use */
+} metadata;
+
+/* SPI Flash memory layout structure */
+struct SPI_Flash_Layout_t {
+uint32_t ConfigAreaAddress; /* Address of configuration storage area */
+uint32_t ConfigAreaSize; /* Size of configuration storage area */
+uint32_t MainFirmwareAddress; /* Address of main firmware storage area */
+uint32_t MainFirmwareSize; /* Size of main firmware storage area */
+uint32_t BackupFirmwareAddress; /* Address of backup firmware storage area */
+uint32_t BackupFirmwareSize; /* Size of backup firmware storage area */
+uint32_t AppDataAddress; /* Address of application data area */
+uint32_t AppDataSize; /* Size of application data area */
+} SPI_Flash_Layout;
+
+/* Firmware metadata structure */
+struct SPI_Flash_Firmware_Metadata_t {
+uint32_t FirmwareVersion; /* Firmware version */
+uint32_t FirmwareSize; /* Firmware size in bytes */
+uint32_t FirmwareCRC; /* Firmware CRC */
+uint32_t TargetAddress; /* Target address in internal flash */
+uint32_t Reserved[4]; /* Reserved for future use */
+} SPI_Flash_Firmware_Metadata;
+
+uint32_t flashInitialized;
+uint32_t reset_counter;
+uint32_t structCRC; /* CRC of this structure (except structCRC field) */
+
+} boot_data_t;
+
+/* Bootloader-specific memory locations */
+#define BOOTLOADER_START_ADDRESS 0x08000000 /* Start of bootloader */
+#define BOOTLOADER_SIZE 0x0000C000 /* 48 KB for bootloader */
+#define BOOT_DATA_ADDRESS 0x0800C000 /* Boot data area */
+#define BOOT_DATA_SIZE 0x00004000 /* 16 KB for boot data */
+#define MAIN_PROGRAM_START_ADDRESS 0x08010000 /* Start of application area */
+#define MAIN_PROGRAM_SIZE 0x00070000 /* 448 KB for application */
+
+/* SPI Flash memory layout constants - adjust based on your flash size */
+#define SPI_FLASH_CONFIG_ADDRESS 0x00000000 /* Start of configuration area */
+#define SPI_FLASH_CONFIG_SIZE 0x00001000 /* 4KB for configuration */
+#define SPI_FLASH_MAIN_FW_ADDRESS 0x00001000 /* Start of main firmware area */
+#define SPI_FLASH_MAIN_FW_SIZE 0x00080000 /* 512KB for main firmware */
+#define SPI_FLASH_BACKUP_FW_ADDRESS 0x00081000 /* Start of backup firmware area */
+#define SPI_FLASH_BACKUP_FW_SIZE 0x00080000 /* 512KB for backup firmware */
+#define SPI_FLASH_APP_DATA_ADDRESS 0x00101000 /* Start of application data area */
+#define SPI_FLASH_APP_DATA_SIZE 0x00080000 /* 512KB for application data */
+
+/* Flash constants */
+#define FLASH_PAGE_SIZE 0x4000 /* 16 KB pages for STM32F407 */
+#define FLASH_SECTOR_SIZE FLASH_PAGE_SIZE
+
+/* Максимальное количество сбросов */
+#define MAX_RESET_COUNT 3
+
+#define BOOTLOADER_VERSION 0x00010000 /* Bootloader version 1.0.0.0 */
+#define BOOTLOADER_FIRMWARE_BUFFER_SIZE 1024 /* Size of buffer for firmware updates */
+
+

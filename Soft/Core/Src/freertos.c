@@ -26,7 +26,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "bootloader.h"
-#include "spi_flash.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,7 +35,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+// Интервал проверки состояния загрузчика в мс
+#define BOOTLOADER_CHECK_INTERVAL   1000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,7 +46,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-extern Bootloader_Status_t BootloaderStatus;
+extern boot_data_t BootloaderData;
+static uint32_t lastErrorCode = 0;  // Для отслеживания изменений кода ошибки
 /* USER CODE END Variables */
 osThreadId mainTaskHandle;
 osThreadId uartTaskHandle;
@@ -149,16 +150,31 @@ void StartMainTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	    // Если загрузчик находится в состоянии ошибки, попытаемся сбросить систему
-	    if (BootloaderStatus.State == BOOTLOADER_STATE_ERROR) {
-	      // Задержка перед сбросом
-	      osDelay(10000);
-	      // Сброс системы
-	      NVIC_SystemReset();
-	    }
+    // Если загрузчик находится в состоянии ошибки, попытаемся сбросить систему
+    if (BootloaderData.status.State == BOOTLOADER_STATE_ERROR) {
+      // Проверяем, изменился ли код ошибки
+      if (lastErrorCode != BootloaderData.status.ErrorCode) {
+        lastErrorCode = BootloaderData.status.ErrorCode;
 
-	    // Проверка состояния системы
-	    osDelay(1000);
+        // Индикация кода ошибки через LED (мигаем синим LED N раз, где N - код ошибки)
+        for (uint8_t i = 0; i < lastErrorCode; i++) {
+          HAL_GPIO_WritePin(B_GPIO_Port, B_Pin, GPIO_PIN_RESET);
+          osDelay(200);
+          HAL_GPIO_WritePin(B_GPIO_Port, B_Pin, GPIO_PIN_SET);
+          osDelay(200);
+        }
+      }
+
+      // Задержка перед сбросом - увеличена для обеспечения видимости индикации ошибки
+      osDelay(10000);
+      // Сброс системы только при критических ошибках
+      if (lastErrorCode >= BOOTLOADER_ERROR_FLASH_INIT_FAILED) {
+        NVIC_SystemReset();
+      }
+    }
+
+    // Проверка состояния системы
+    osDelay(BOOTLOADER_CHECK_INTERVAL);
   }
   /* USER CODE END StartMainTask */
 }
@@ -194,8 +210,8 @@ void EthTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	    // Обработка Ethernet для загрузчика
-	    osDelay(10);
+    // Обработка Ethernet для загрузчика
+    osDelay(10);
   }
   /* USER CODE END EthTask */
 }
@@ -210,14 +226,17 @@ void EthTask(void const * argument)
 void BootloaderTask(void const * argument)
 {
   /* USER CODE BEGIN BootloaderTask */
+  // Краткая задержка перед началом работы, чтобы дать другим задачам инициализироваться
+  osDelay(500);
+
   /* Infinite loop */
   for(;;)
   {
-	    // Вызываем функцию обработки состояния загрузчика
-	    Bootloader_Run();
+    // Вызываем функцию обработки состояния загрузчика
+    Bootloader_Run();
 
-	    // Короткая задержка для передачи управления другим задачам
-	    osDelay(10);
+    // Короткая задержка для передачи управления другим задачам
+    osDelay(10);
   }
   /* USER CODE END BootloaderTask */
 }

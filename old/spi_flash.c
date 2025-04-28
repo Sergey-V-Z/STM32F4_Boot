@@ -10,14 +10,13 @@
 #include "main.h"
 #include "spi_flash.h"
 #include "crc.h"
-#include "flash_utils.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
 /* Private macro -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
-static SPI_Flash_Layout_t flashLayout;
-static uint8_t flashInitialized = 0;
+//static SPI_Flash_Layout_t flashLayout;
+//static uint8_t flashInitialized = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static uint32_t SPI_Flash_GetFirmwareAddress(uint8_t firmwareArea);

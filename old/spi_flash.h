@@ -17,29 +17,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
 #include "flash_spi.h" // Включаем существующий драйвер
-
+#include "main.h"
 /* Exported types ------------------------------------------------------------*/
-
-/* SPI Flash memory layout structure */
-typedef struct {
-    uint32_t ConfigAreaAddress;      /* Address of configuration storage area */
-    uint32_t ConfigAreaSize;         /* Size of configuration storage area */
-    uint32_t MainFirmwareAddress;    /* Address of main firmware storage area */
-    uint32_t MainFirmwareSize;       /* Size of main firmware storage area */
-    uint32_t BackupFirmwareAddress;  /* Address of backup firmware storage area */
-    uint32_t BackupFirmwareSize;     /* Size of backup firmware storage area */
-    uint32_t AppDataAddress;         /* Address of application data area */
-    uint32_t AppDataSize;            /* Size of application data area */
-} SPI_Flash_Layout_t;
-
-/* Firmware metadata structure */
-typedef struct {
-    uint32_t FirmwareVersion;        /* Firmware version */
-    uint32_t FirmwareSize;           /* Firmware size in bytes */
-    uint32_t FirmwareCRC;            /* Firmware CRC */
-    uint32_t TargetAddress;          /* Target address in internal flash */
-    uint32_t Reserved[4];            /* Reserved for future use */
-} SPI_Flash_Firmware_Metadata_t;
 
 /* Exported constants --------------------------------------------------------*/
 

@@ -20,11 +20,11 @@
 /* Exported types ------------------------------------------------------------*/
 
 /* SPI Pin structure */
- typedef struct
-   {
-     GPIO_TypeDef* GPIO_Port;
-     uint16_t GPIO_Pin;
-   }pins_spi_t;
+typedef struct
+{
+  GPIO_TypeDef* GPIO_Port;
+  uint16_t GPIO_Pin;
+} pins_spi_t;
 
 /* W25Qxx Flash ID */
 typedef enum {
@@ -437,6 +437,29 @@ void W25QXX_ReadSector(W25QXX_Device_t *device, uint8_t *pBuffer, uint32_t Secto
   * @retval None
   */
 void W25QXX_ReadBlock(W25QXX_Device_t *device, uint8_t *pBuffer, uint32_t Block_Address, uint32_t OffsetInByte, uint32_t NumByteToRead_up_to_BlockSize);
+
+/**
+  * @brief  Проверяет данные на указанном адресе во внешней Flash
+  * @param  device: Указатель на устройство
+  * @param  address: Адрес для проверки
+  * @param  size: Размер данных для проверки (в байтах)
+  * @retval 1 если данные обнаружены (не все 0xFF), 0 если данные пустые
+  */
+uint8_t W25QXX_CheckDataAtAddress(W25QXX_Device_t *device, uint32_t address, uint32_t size);
+
+/**
+  * @brief  Сбрасывает последнюю ошибку
+  * @param  device: Указатель на устройство
+  * @retval None
+  */
+void W25QXX_ClearLastStatus(W25QXX_Device_t *device);
+
+/**
+  * @brief  Возвращает последний статус операции
+  * @param  device: Указатель на устройство
+  * @retval HAL_StatusTypeDef: Последний статус операции
+  */
+HAL_StatusTypeDef W25QXX_GetLastStatus(W25QXX_Device_t *device);
 
 #ifdef __cplusplus
 }

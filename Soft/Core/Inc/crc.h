@@ -16,6 +16,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
+#include "flash_spi.h"
 
 /* Exported types ------------------------------------------------------------*/
 /* Exported constants --------------------------------------------------------*/
@@ -46,6 +47,24 @@ uint8_t CRC_ValidateFirmware(uint32_t startAddress, uint32_t firmwareSize, uint3
   * @retval  CRC32 value calculated
   */
 uint32_t CRC_CalculateAndAppend(uint8_t* pBuffer, uint32_t bufferSize);
+
+/**
+  * @brief   Рассчитывает CRC32 для структуры метаданных
+  * @param   pMetadata: указатель на структуру метаданных
+  * @param   metadataSize: размер структуры метаданных (без учета поля CRC)
+  * @retval  Вычисленное значение CRC
+  */
+uint32_t CRC_CalculateMetadata(void* pMetadata, uint32_t metadataSize);
+
+/**
+  * @brief   Проверяет CRC на указанном блоке данных в SPI Flash
+  * @param   device: указатель на устройство SPI Flash
+  * @param   address: адрес начала блока в SPI Flash
+  * @param   size: размер блока данных
+  * @param   expectedCRC: ожидаемое значение CRC
+  * @retval  1 если CRC совпадает, 0 в противном случае
+  */
+uint8_t CRC_ValidateExternalData(W25QXX_Device_t* device, uint32_t address, uint32_t size, uint32_t expectedCRC);
 
 #ifdef __cplusplus
 }

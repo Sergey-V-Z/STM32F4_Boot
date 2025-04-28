@@ -43,11 +43,12 @@ _Min_Heap_Size = 0x200; /* required amount of heap */
 _Min_Stack_Size = 0x400; /* required amount of stack */
 
 /* Memories definition */
-MEMORY
-{
-  CCMRAM    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
-  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 128K
+MEMORY {
+  CCMRAM (xrw) : ORIGIN = 0x10000000, LENGTH = 64K
+  RAM (xrw) : ORIGIN = 0x20000000, LENGTH = 128K
+  FLASH (rx) : ORIGIN = 0x8000000, LENGTH = 48K   
+  BOOT_DATA (rx) : ORIGIN = 0x800C000, LENGTH = 16K
+  APP (rx) : ORIGIN = 0x8010000, LENGTH = 448K  
 }
 
 /* Sections */

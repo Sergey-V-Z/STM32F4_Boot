@@ -1,0 +1,1 @@
+python firmware_update_client.py 192.168.10.3 UD_v4.bin
