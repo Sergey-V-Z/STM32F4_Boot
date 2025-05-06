@@ -74,9 +74,9 @@ public:
         browseButton->setGeometry(QRect(360, 170, 75, 23));
         blockSizeSpinBox = new QSpinBox(centralwidget);
         blockSizeSpinBox->setObjectName(QString::fromUtf8("blockSizeSpinBox"));
-        blockSizeSpinBox->setGeometry(QRect(50, 240, 42, 22));
-        blockSizeSpinBox->setMaximum(1024);
-        blockSizeSpinBox->setValue(512);
+        blockSizeSpinBox->setGeometry(QRect(50, 240, 101, 22));
+        blockSizeSpinBox->setMaximum(10000);
+        blockSizeSpinBox->setValue(256);
         versionEdit = new QLineEdit(centralwidget);
         versionEdit->setObjectName(QString::fromUtf8("versionEdit"));
         versionEdit->setGeometry(QRect(200, 240, 113, 20));
@@ -92,7 +92,7 @@ public:
         progressBar->setValue(24);
         statusLabel = new QLabel(centralwidget);
         statusLabel->setObjectName(QString::fromUtf8("statusLabel"));
-        statusLabel->setGeometry(QRect(50, 410, 47, 14));
+        statusLabel->setGeometry(QRect(50, 410, 431, 16));
         logTextEdit = new QPlainTextEdit(centralwidget);
         logTextEdit->setObjectName(QString::fromUtf8("logTextEdit"));
         logTextEdit->setGeometry(QRect(500, 20, 261, 541));

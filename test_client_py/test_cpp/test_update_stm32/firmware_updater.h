@@ -45,10 +45,10 @@
 
 // Настройки клиента
 #define DEFAULT_PORT       8080
-#define DEFAULT_BLOCK_SIZE 512
+#define DEFAULT_BLOCK_SIZE 256
 #define DEFAULT_TIMEOUT    15000 // в миллисекундах
 #define DEFAULT_RETRY_COUNT 3
-#define DEFAULT_DELAY      100 // в миллисекундах
+#define DEFAULT_DELAY      1 // в миллисекундах
 
 class FirmwareUpdater : public QObject
 {

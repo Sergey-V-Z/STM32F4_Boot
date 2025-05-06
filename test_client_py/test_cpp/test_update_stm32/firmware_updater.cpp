@@ -336,7 +336,7 @@ bool FirmwareUpdater::receiveResponse(quint32 &status, quint32 &error)
     // Ожидаем ответ с таймаутом
     m_timeoutTimer->start();
     while (m_responseBuffer.size() < RESPONSE_SIZE) {
-        if (!m_socket->waitForReadyRead(100)) {
+        if (!m_socket->waitForReadyRead(3000)) {
             if (m_socket->error() != QAbstractSocket::SocketTimeoutError || m_timeoutTimer->isActive()) {
                 break;
             }
@@ -564,6 +564,7 @@ QString FirmwareUpdater::getErrorText(quint32 error) const
 
 void FirmwareUpdater::log(const QString &message)
 {
-    qDebug() << "[FirmwareUpdater]" << message;
+    qDebug().noquote() << "[FirmwareUpdater]" << message;
+    //qDebug().noquote() << QString("[FirmwareUpdater]") << QString::fromUtf8(message.toUtf8());
     emit logMessage(message);
 }
