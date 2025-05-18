@@ -54,7 +54,7 @@ W25QXX_Device_t w25qxx_dev;  // Устройство SPI Flash
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
-static uint8_t InitSpiFlash(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -97,8 +97,6 @@ int main(void) {
 	MX_SPI3_Init();
 	/* USER CODE BEGIN 2 */
 
-	// Инициализация SPI Flash
-	InitSpiFlash();
 	// Чтение настроек
 	//W25QXX_ReadSettings(&w25qxx_dev, &settings);
 	/* USER CODE END 2 */
@@ -164,31 +162,7 @@ void SystemClock_Config(void) {
 }
 
 /* USER CODE BEGIN 4 */
-static uint8_t InitSpiFlash(void) {
-    // Настройка пинов для SPI Flash
-    pins_spi_t csPin = {SPI3_CS_GPIO_Port, SPI3_CS_Pin};
-    pins_spi_t wpPin = {WP_GPIO_Port, WP_Pin};
-    pins_spi_t holdPin = {HOLD_GPIO_Port, HOLD_Pin};
 
-    // Инициализация устройства SPI Flash
-    W25QXX_InitDevice(&w25qxx_dev);
-
-    // Инициализация SPI Flash с настройками
-    if (!W25QXX_Init(&w25qxx_dev, &hspi3, 0, csPin, wpPin, holdPin, 1)) {
-        // Ошибка инициализации - индикация
-        HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET);
-        return 0;
-    }
-
-    // Успешная инициализация - короткий сигнал зеленым светодиодом
-    HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_RESET);
-    HAL_Delay(100);
-    HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_SET);
-
-    return 1;
-}
 /* USER CODE END 4 */
 
 /**

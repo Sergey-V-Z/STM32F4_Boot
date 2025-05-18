@@ -9,6 +9,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_updater(new FirmwareUpdater(this))
 {
     ui->setupUi(this);
+    ui->m_backupUpdateCheckBox->setToolTip("Обновить резервную прошивку вместо основной");
 
     // Настраиваем соединения сигналов и слотов
     connect(ui->connectButton, &QPushButton::clicked, this, &MainWindow::onConnectClicked);
@@ -16,14 +17,16 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->browseButton, &QPushButton::clicked, this, &MainWindow::onSelectFirmwareClicked);
     connect(ui->updateButton, &QPushButton::clicked, this, &MainWindow::onUpdateClicked);
     connect(ui->abortButton, &QPushButton::clicked, this, &MainWindow::onAbortClicked);
+    // соединение для метаданных
+    connect(m_updater, &FirmwareUpdater::metadataReceived, this, &MainWindow::onMetadataReceived);
+    // Если путь к файлу меняется через QLineEdit
+    connect(ui->firmwarePathEdit, &QLineEdit::textChanged, this, &MainWindow::onFirmwareSelected);
+    connect(m_updater, &FirmwareUpdater::metadataMismatch, this, &MainWindow::onMetadataMismatch);
 
     // Соединения с FirmwareUpdater
-    connect(m_updater, &FirmwareUpdater::updateProgress,
-            this, &MainWindow::onUpdateProgress);
-    connect(m_updater, &FirmwareUpdater::updateStatusChanged,
-            this, &MainWindow::onUpdateStatusChanged);
-    connect(m_updater, &FirmwareUpdater::logMessage,
-            this, &MainWindow::onLogMessage);
+    connect(m_updater, &FirmwareUpdater::updateProgress, this, &MainWindow::onUpdateProgress);
+    connect(m_updater, &FirmwareUpdater::updateStatusChanged, this, &MainWindow::onUpdateStatusChanged);
+    connect(m_updater, &FirmwareUpdater::logMessage, this, &MainWindow::onLogMessage);
 
     // Настройка начального состояния UI
     ui->statusButton->setEnabled(false);
@@ -65,6 +68,10 @@ void MainWindow::onConnectClicked()
             quint32 error;
             m_updater->getDeviceStatus(status, error);
             updateStatusDisplay(status, error);
+
+            // Запрашиваем метаданные при успешном подключении
+            FirmwareMetadata metadata;
+            m_updater->getDeviceMetadata(metadata);
         } else {
             QMessageBox::critical(this, "Ошибка", "Не удалось подключиться к устройству");
         }
@@ -97,24 +104,68 @@ void MainWindow::onUpdateClicked()
         return;
     }
 
+    // Проверяем наличие метаданных в файле перед обновлением
+    FirmwareMetadata fileMetadata = m_updater->extractMetadataFromFile(firmwarePath);
+    if (fileMetadata.key_start != METADATA_KEY) {
+        QString errorMessage = "В файле не найдены валидные метаданные.\n"
+                               "Обновление невозможно. Используйте только официальные прошивки.";
+        QMessageBox::critical(this, "Ошибка метаданных", errorMessage);
+        ui->logTextEdit->appendPlainText("ОШИБКА: В файле не найдены валидные метаданные. Обновление отменено.");
+        return; // Отменяем обновление если нет метаданных
+    }
+
+    // Проверяем состояние чекбокса из UI
+    bool isBackup = ui->m_backupUpdateCheckBox->isChecked();
+
+    // Показываем подтверждение с указанием типа обновления
+    QString updateType = isBackup ? "резервную" : "основную";
+    QString message = QString("Вы уверены, что хотите обновить %1 прошивку?").arg(updateType);
+    if (isBackup) {
+        message += "\nЭто действие не повлияет на текущую работу устройства.";
+    }
+
+    if (QMessageBox::question(this, "Подтверждение", message,
+                            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+
     // Блокируем интерфейс на время обновления
     setControlsEnabled(false);
     ui->connectButton->setEnabled(false);
     ui->abortButton->setEnabled(true);
 
-    // Получаем параметры обновления
-    quint32 blockSize = ui->blockSizeSpinBox->value();
-    quint32 firmwareVersion = ui->versionEdit->text().toUInt(nullptr, 16);
-
     // Запускаем обновление
-    ui->logTextEdit->appendPlainText("Начинаем обновление прошивки...");
-    bool success = m_updater->updateFirmware(firmwarePath, blockSize, firmwareVersion);
+    // Запускаем обновление (передаем флаг isBackup)
+    QString logMessage = QString("Начинаем обновление %1 прошивки...").arg(updateType);
+    ui->logTextEdit->appendPlainText(logMessage);
+    bool success = m_updater->updateFirmware(firmwarePath, isBackup);
 
-    if (success) {
-        QMessageBox::information(this, "Успех", "Обновление прошивки успешно завершено");
+    if (!success) {
+        // Метаданные могут не совпасть - это обрабатывается через сигнал
+        // Если ошибка не связана с метаданными - покажем сообщение
+        if (fileMetadata.key_start == METADATA_KEY) {
+            // Разблокируем интерфейс только если это не ошибка метаданных
+            // (для ошибки метаданных это сделает обработчик onMetadataMismatch)
+            setControlsEnabled(true);
+            ui->connectButton->setEnabled(true);
+            ui->abortButton->setEnabled(false);
+        }
     } else {
-        QMessageBox::critical(this, "Ошибка", "Не удалось обновить прошивку");
+        QString successMessage = QString("Обновление %1 прошивки успешно завершено").arg(updateType);
+        QMessageBox::information(this, "Успех", successMessage);
+
+        setControlsEnabled(true);
+        ui->connectButton->setEnabled(true);
+        ui->abortButton->setEnabled(false);
     }
+    /*
+    if (success) {
+        QString successMessage = QString("Обновление %1 прошивки успешно завершено").arg(updateType);
+        QMessageBox::information(this, "Успех", successMessage);
+    } else {
+        QString errorMessage = QString("Не удалось обновить %1 прошивку").arg(updateType);
+        QMessageBox::critical(this, "Ошибка", errorMessage);
+    }*/
 
     setControlsEnabled(true);
     ui->connectButton->setEnabled(true);
@@ -169,8 +220,6 @@ void MainWindow::setControlsEnabled(bool enabled)
     ui->ipAddressEdit->setEnabled(enabled);
     ui->portSpinBox->setEnabled(enabled);
     ui->firmwarePathEdit->setEnabled(enabled);
-    ui->blockSizeSpinBox->setEnabled(enabled);
-    ui->versionEdit->setEnabled(enabled);
     ui->browseButton->setEnabled(enabled);
 }
 
@@ -214,4 +263,51 @@ QString MainWindow::getErrorText(quint32 error)
         default:
             return QString("Неизвестная ошибка (%1)").arg(error);
     }
+}
+
+// Реализация слота для получения метаданных устройства
+void MainWindow::onMetadataReceived(const FirmwareMetadata &metadata)
+{
+    if (metadata.key_start == METADATA_KEY) {
+        QString deviceInfo = QString("Подключено: %1 (версия %2)")
+            .arg(QString::fromUtf8(metadata.name_proj))
+            .arg(QString::number(metadata.version, 16).toUpper().rightJustified(8, '0'));
+
+        // Показываем в статусной строке или в label
+        ui->deviceInfoLabel->setText(deviceInfo);
+
+        // Логируем
+        ui->logTextEdit->appendPlainText("Информация об устройстве: " + deviceInfo);
+    }
+}
+
+// Реализация слота для выбора файла
+void MainWindow::onFirmwareSelected(const QString &firmwarePath)
+{
+    if (!firmwarePath.isEmpty() && QFile::exists(firmwarePath)) {
+        // Извлекаем метаданные из файла
+        FirmwareMetadata fileMetadata = m_updater->extractMetadataFromFile(firmwarePath);
+
+        if (fileMetadata.key_start == METADATA_KEY) {
+            QString fileInfo = QString("Файл: %1 (версия %2)")
+                .arg(QString::fromUtf8(fileMetadata.name_proj))
+                .arg(QString::number(fileMetadata.version, 16).toUpper().rightJustified(8, '0'));
+
+            // Показываем в UI (например, в label)
+            ui->fileInfoLabel->setText(fileInfo);
+        } else {
+            ui->fileInfoLabel->setText("Метаданные не найдены в файле");
+        }
+    }
+}
+
+// Обработчик несоответствия метаданных
+void MainWindow::onMetadataMismatch(const QString &fileProject, const QString &deviceProject)
+{
+    // Выводим сообщение в лог
+    ui->logTextEdit->appendPlainText("ПРЕДУПРЕЖДЕНИЕ: Несоответствие метаданных!");
+    ui->logTextEdit->appendPlainText("Файл: " + fileProject);
+    ui->logTextEdit->appendPlainText("Устройство: " + deviceProject);
+    ui->logTextEdit->appendPlainText("Обновление отменено из-за несоответствия метаданных.");
+
 }

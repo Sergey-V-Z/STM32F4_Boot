@@ -46,21 +46,21 @@
    <widget class="QPushButton" name="connectButton">
     <property name="geometry">
      <rect>
-      <x>390</x>
-      <y>30</y>
-      <width>75</width>
+      <x>380</x>
+      <y>40</y>
+      <width>91</width>
       <height>23</height>
      </rect>
     </property>
     <property name="text">
-     <string>PushButton</string>
+     <string>Подключение</string>
     </property>
    </widget>
    <widget class="QPushButton" name="statusButton">
     <property name="geometry">
      <rect>
-      <x>50</x>
-      <y>110</y>
+      <x>30</x>
+      <y>270</y>
       <width>75</width>
       <height>23</height>
      </rect>
@@ -72,9 +72,9 @@
    <widget class="QLineEdit" name="firmwarePathEdit">
     <property name="geometry">
      <rect>
-      <x>50</x>
-      <y>170</y>
-      <width>281</width>
+      <x>30</x>
+      <y>110</y>
+      <width>431</width>
       <height>20</height>
      </rect>
     </property>
@@ -85,64 +85,35 @@
    <widget class="QPushButton" name="browseButton">
     <property name="geometry">
      <rect>
-      <x>360</x>
-      <y>170</y>
-      <width>75</width>
+      <x>240</x>
+      <y>140</y>
+      <width>111</width>
       <height>23</height>
      </rect>
     </property>
     <property name="text">
-     <string>PushButton</string>
-    </property>
-   </widget>
-   <widget class="QSpinBox" name="blockSizeSpinBox">
-    <property name="geometry">
-     <rect>
-      <x>50</x>
-      <y>240</y>
-      <width>101</width>
-      <height>22</height>
-     </rect>
-    </property>
-    <property name="maximum">
-     <number>10000</number>
-    </property>
-    <property name="value">
-     <number>256</number>
-    </property>
-   </widget>
-   <widget class="QLineEdit" name="versionEdit">
-    <property name="geometry">
-     <rect>
-      <x>200</x>
-      <y>240</y>
-      <width>113</width>
-      <height>20</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>10000</string>
+     <string>Файл прошивки</string>
     </property>
    </widget>
    <widget class="QPushButton" name="updateButton">
     <property name="geometry">
      <rect>
-      <x>370</x>
-      <y>240</y>
-      <width>75</width>
+      <x>360</x>
+      <y>170</y>
+      <width>121</width>
       <height>23</height>
      </rect>
     </property>
     <property name="text">
-     <string>PushButton</string>
+     <string>Начать обновление</string>
     </property>
    </widget>
    <widget class="QPushButton" name="abortButton">
     <property name="geometry">
      <rect>
-      <x>370</x>
-      <y>280</y>
-      <width>75</width>
+      <x>220</x>
+      <y>180</y>
+      <width>121</width>
       <height>23</height>
      </rect>
     </property>
@@ -153,8 +124,8 @@
    <widget class="QProgressBar" name="progressBar">
     <property name="geometry">
      <rect>
-      <x>60</x>
-      <y>360</y>
+      <x>40</x>
+      <y>190</y>
       <width>118</width>
       <height>23</height>
      </rect>
@@ -166,8 +137,8 @@
    <widget class="QLabel" name="statusLabel">
     <property name="geometry">
      <rect>
-      <x>50</x>
-      <y>410</y>
+      <x>30</x>
+      <y>240</y>
       <width>431</width>
       <height>16</height>
      </rect>
@@ -184,6 +155,45 @@
       <width>261</width>
       <height>541</height>
      </rect>
+    </property>
+   </widget>
+   <widget class="QCheckBox" name="m_backupUpdateCheckBox">
+    <property name="geometry">
+     <rect>
+      <x>370</x>
+      <y>140</y>
+      <width>101</width>
+      <height>18</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>резервная</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="deviceInfoLabel">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>310</y>
+      <width>431</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>TextLabel</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="fileInfoLabel">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>350</y>
+      <width>451</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>123</string>
     </property>
    </widget>
   </widget>

@@ -15,6 +15,30 @@
 /* Private variables ---------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
 /* Private functions ---------------------------------------------------------*/
+// Полином CRC32: 0x04C11DB7
+#define CRC32_POLYNOMIAL 0xEDB88320 // Отраженный полином для CRC32
+
+/**
+ * @brief Вычисляет CRC32 для блока данных
+ *
+ * @param data Указатель на данные
+ * @param length Длина данных в байтах
+ * @param initial_crc Начальное значение CRC (для продолжения вычисления)
+ * @return uint32_t Результат вычисления CRC32
+ */
+uint32_t crc32_calculate(const void* data, size_t length, uint32_t initial_crc) {
+    const uint8_t* p = (const uint8_t*)data;
+    uint32_t crc = ~initial_crc; // Инвертируем начальное значение
+
+    while (length--) {
+        crc ^= *p++;
+        for (int i = 0; i < 8; i++) {
+            crc = (crc >> 1) ^ (CRC32_POLYNOMIAL & -(crc & 1));
+        }
+    }
+
+    return ~crc; // Инвертируем результат
+}
 
 /**
   * @brief   Computes the 32-bit CRC of a given buffer of data.

@@ -2,6 +2,7 @@
 ../Core/Src/freertos.c:147:6:StartMainTask	4
 ../Core/Src/freertos.c:189:6:UartTask	1
 ../Core/Src/freertos.c:207:6:EthTask	1
-../Core/Src/freertos.c:226:6:BootloaderTask	1
+../Core/Src/freertos.c:266:16:InitSpiFlash	2
+../Core/Src/freertos.c:226:6:BootloaderTask	2
 ../Core/Src/freertos.c:77:6:vApplicationGetIdleTaskMemory	1
 ../Core/Src/freertos.c:91:6:MX_FREERTOS_Init	1

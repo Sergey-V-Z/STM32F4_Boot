@@ -11,6 +11,7 @@
 
 #include <QtCore/QVariant>
 #include <QtWidgets/QApplication>
+#include <QtWidgets/QCheckBox>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QMainWindow>
@@ -34,13 +35,14 @@ public:
     QPushButton *statusButton;
     QLineEdit *firmwarePathEdit;
     QPushButton *browseButton;
-    QSpinBox *blockSizeSpinBox;
-    QLineEdit *versionEdit;
     QPushButton *updateButton;
     QPushButton *abortButton;
     QProgressBar *progressBar;
     QLabel *statusLabel;
     QPlainTextEdit *logTextEdit;
+    QCheckBox *m_backupUpdateCheckBox;
+    QLabel *deviceInfoLabel;
+    QLabel *fileInfoLabel;
     QMenuBar *menubar;
     QStatusBar *statusbar;
 
@@ -61,41 +63,42 @@ public:
         portSpinBox->setValue(8080);
         connectButton = new QPushButton(centralwidget);
         connectButton->setObjectName(QString::fromUtf8("connectButton"));
-        connectButton->setGeometry(QRect(390, 30, 75, 23));
+        connectButton->setGeometry(QRect(380, 40, 91, 23));
         statusButton = new QPushButton(centralwidget);
         statusButton->setObjectName(QString::fromUtf8("statusButton"));
-        statusButton->setGeometry(QRect(50, 110, 75, 23));
+        statusButton->setGeometry(QRect(30, 270, 75, 23));
         firmwarePathEdit = new QLineEdit(centralwidget);
         firmwarePathEdit->setObjectName(QString::fromUtf8("firmwarePathEdit"));
-        firmwarePathEdit->setGeometry(QRect(50, 170, 281, 20));
+        firmwarePathEdit->setGeometry(QRect(30, 110, 431, 20));
         firmwarePathEdit->setReadOnly(true);
         browseButton = new QPushButton(centralwidget);
         browseButton->setObjectName(QString::fromUtf8("browseButton"));
-        browseButton->setGeometry(QRect(360, 170, 75, 23));
-        blockSizeSpinBox = new QSpinBox(centralwidget);
-        blockSizeSpinBox->setObjectName(QString::fromUtf8("blockSizeSpinBox"));
-        blockSizeSpinBox->setGeometry(QRect(50, 240, 101, 22));
-        blockSizeSpinBox->setMaximum(10000);
-        blockSizeSpinBox->setValue(256);
-        versionEdit = new QLineEdit(centralwidget);
-        versionEdit->setObjectName(QString::fromUtf8("versionEdit"));
-        versionEdit->setGeometry(QRect(200, 240, 113, 20));
+        browseButton->setGeometry(QRect(240, 140, 111, 23));
         updateButton = new QPushButton(centralwidget);
         updateButton->setObjectName(QString::fromUtf8("updateButton"));
-        updateButton->setGeometry(QRect(370, 240, 75, 23));
+        updateButton->setGeometry(QRect(360, 170, 121, 23));
         abortButton = new QPushButton(centralwidget);
         abortButton->setObjectName(QString::fromUtf8("abortButton"));
-        abortButton->setGeometry(QRect(370, 280, 75, 23));
+        abortButton->setGeometry(QRect(220, 180, 121, 23));
         progressBar = new QProgressBar(centralwidget);
         progressBar->setObjectName(QString::fromUtf8("progressBar"));
-        progressBar->setGeometry(QRect(60, 360, 118, 23));
+        progressBar->setGeometry(QRect(40, 190, 118, 23));
         progressBar->setValue(24);
         statusLabel = new QLabel(centralwidget);
         statusLabel->setObjectName(QString::fromUtf8("statusLabel"));
-        statusLabel->setGeometry(QRect(50, 410, 431, 16));
+        statusLabel->setGeometry(QRect(30, 240, 431, 16));
         logTextEdit = new QPlainTextEdit(centralwidget);
         logTextEdit->setObjectName(QString::fromUtf8("logTextEdit"));
         logTextEdit->setGeometry(QRect(500, 20, 261, 541));
+        m_backupUpdateCheckBox = new QCheckBox(centralwidget);
+        m_backupUpdateCheckBox->setObjectName(QString::fromUtf8("m_backupUpdateCheckBox"));
+        m_backupUpdateCheckBox->setGeometry(QRect(370, 140, 101, 18));
+        deviceInfoLabel = new QLabel(centralwidget);
+        deviceInfoLabel->setObjectName(QString::fromUtf8("deviceInfoLabel"));
+        deviceInfoLabel->setGeometry(QRect(10, 310, 431, 16));
+        fileInfoLabel = new QLabel(centralwidget);
+        fileInfoLabel->setObjectName(QString::fromUtf8("fileInfoLabel"));
+        fileInfoLabel->setGeometry(QRect(10, 350, 451, 16));
         MainWindow->setCentralWidget(centralwidget);
         menubar = new QMenuBar(MainWindow);
         menubar->setObjectName(QString::fromUtf8("menubar"));
@@ -114,13 +117,15 @@ public:
     {
         MainWindow->setWindowTitle(QCoreApplication::translate("MainWindow", "MainWindow", nullptr));
         ipAddressEdit->setText(QCoreApplication::translate("MainWindow", "192.168.10.3", nullptr));
-        connectButton->setText(QCoreApplication::translate("MainWindow", "PushButton", nullptr));
+        connectButton->setText(QCoreApplication::translate("MainWindow", "\320\237\320\276\320\264\320\272\320\273\321\216\321\207\320\265\320\275\320\270\320\265", nullptr));
         statusButton->setText(QCoreApplication::translate("MainWindow", "\321\201\321\202\320\260\321\202\321\203\321\201", nullptr));
-        browseButton->setText(QCoreApplication::translate("MainWindow", "PushButton", nullptr));
-        versionEdit->setText(QCoreApplication::translate("MainWindow", "10000", nullptr));
-        updateButton->setText(QCoreApplication::translate("MainWindow", "PushButton", nullptr));
+        browseButton->setText(QCoreApplication::translate("MainWindow", "\320\244\320\260\320\271\320\273 \320\277\321\200\320\276\321\210\320\270\320\262\320\272\320\270", nullptr));
+        updateButton->setText(QCoreApplication::translate("MainWindow", "\320\235\320\260\321\207\320\260\321\202\321\214 \320\276\320\261\320\275\320\276\320\262\320\273\320\265\320\275\320\270\320\265", nullptr));
         abortButton->setText(QCoreApplication::translate("MainWindow", "\320\276\321\202\320\274\320\265\320\275\320\260", nullptr));
         statusLabel->setText(QCoreApplication::translate("MainWindow", "TextLabel", nullptr));
+        m_backupUpdateCheckBox->setText(QCoreApplication::translate("MainWindow", "\321\200\320\265\320\267\320\265\321\200\320\262\320\275\320\260\321\217", nullptr));
+        deviceInfoLabel->setText(QCoreApplication::translate("MainWindow", "TextLabel", nullptr));
+        fileInfoLabel->setText(QCoreApplication::translate("MainWindow", "123", nullptr));
     } // retranslateUi
 
 };

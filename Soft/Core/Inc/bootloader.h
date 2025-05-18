@@ -20,11 +20,20 @@
 #include "main.h"
 /* Exported types ------------------------------------------------------------*/
 
+ // Структура метаданных
+ typedef struct {
+     uint32_t key_start;       // Магическое число (0xDEADBEEF)
+     uint32_t version;         // Версия прошивки
+     uint8_t name_proj[140];   // Название проекта или устройства
+     uint32_t reserved;        // Зарезервировано для будущего использования
+ } meta_t;
+
 /* Bootloader state enum */
 typedef enum {
 	BOOTLOADER_STATE_INIT, /* Bootloader initializing */
 	BOOTLOADER_STATE_RECOVERY, /* Entering recovery mode */
-	BOOTLOADER_STATE_ERROR /* Error state */
+	BOOTLOADER_STATE_ERROR, /* Error state */
+	BOOTLOADER_STATE_JMP_APP // можно переходить в приложение. после обновления или восстановления
 } Bootloader_State_t;
 
 /* Bootloader error codes */
@@ -54,8 +63,9 @@ typedef enum {
 typedef struct {
 	struct Bootloader_Status_t {
 		Bootloader_State_t State; /* Current state of bootloader */
+		Recovery_Reason_t RecoveryReason;
 		uint32_t ErrorCode; /* Error code if any */
-		uint32_t ResetCount; /* Number of consecutive resets */
+		//uint32_t ResetCount; /* Number of consecutive resets */
 		uint8_t IsAppValid; /* Is the application valid */
 		uint8_t IsRecovery; /* Is in recovery mode */
 		uint32_t LastFlashAddress; /* Last address flashed */
@@ -68,7 +78,15 @@ typedef struct {
 		uint32_t firmwareVersion; /* Version number of firmware */
 		uint32_t update; /* Flag indicating if app need update */
 		uint32_t reserved; /* Reserved for future use */
-	} metadata;
+	} main_metadata;
+
+	struct backup_Metadata_t {
+		uint32_t firmwareSize; /* Size of firmware in bytes */
+		uint32_t firmwareCRC; /* CRC of firmware */
+		uint32_t firmwareVersion; /* Version number of firmware */
+		uint32_t update; /* Flag indicating if app need update */
+		uint32_t reserved; /* Reserved for future use */
+	} backup_metadata;
 
 	/* SPI Flash memory layout structure */
 	struct SPI_Flash_Layout_t {
@@ -143,23 +161,29 @@ typedef enum {
 
 #define BOOTLOADER_VERSION                 0x00010000  /* Bootloader version 1.0.0.0 */
 #define BOOTLOADER_FIRMWARE_BUFFER_SIZE    1024        /* Size of buffer for firmware updates */
+
+// Константы метаданных
+#define FIRMWARE_VERSION    0x00010000  // Версия 1.0.0.0
+#define FIRMWARE_NAME       "Motor Controller Device"  // Название устройства
+#define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
+// Определение смещения метаданных (512 байт от начала программы)
+#define METADATA_OFFSET     512
+#define METADATA_ADDRESS    (MAIN_PROGRAM_START_ADDRESS + METADATA_OFFSET) // Базовый адрес + смещение
 /* Exported macros -----------------------------------------------------------*/
 
 /* Exported functions --------------------------------------------------------*/
-
+/**
+ * @brief  Processes the current bootloader state.
+ * @param  None
+ * @retval None
+ */
+int Bootloader_ProcessState(void);
 /**
  * @brief  Initializes the bootloader.
  * @param  None
  * @retval None
  */
 void Bootloader_Init(void);
-
-/**
- * @brief  Runs the bootloader main process.
- * @param  None
- * @retval None
- */
-void Bootloader_Run(void);
 
 /**
  * @brief  Forces entry into recovery mode.
@@ -174,20 +198,6 @@ void Bootloader_ForceRecovery(void);
  * @retval None (does not return if successful)
  */
 void Bootloader_JumpToApplication(void);
-
-/**
- * @brief  Checks if the application is valid.
- * @param  None
- * @retval 1 if valid, 0 if invalid
- */
-uint8_t Bootloader_IsApplicationValid(void);
-
-/**
- * @brief  Checks if backup firmware exists in SPI Flash.
- * @param  None
- * @retval 1 if valid backup firmware exists, 0 if not
- */
-uint8_t Bootloader_CheckBackupFirmware(void);
 
 /**
  * @brief  Saves the bootloader status to BOOT_DATA area.
@@ -210,9 +220,14 @@ boot_data_valid_t Bootloader_LoadStatus(boot_data_t *boot_data);
  * @param  newFirmwareVersion: Версия новой прошивки
  * @retval HAL_StatusTypeDef: Статус операции
  */
-HAL_StatusTypeDef Bootloader_RequestUpdate(uint32_t newFirmwareSize,
-		uint32_t newFirmwareCRC, uint32_t newFirmwareVersion);
+HAL_StatusTypeDef Bootloader_RequestUpdate(uint32_t newFirmwareSize, uint32_t newFirmwareCRC, uint32_t newFirmwareVersion);
 
+/**
+ * @brief  Копирует прошивку из внешней во внутреннюю память
+ * @param  extFlashAddress: Адрес внешней прошивки
+ * @retval int: Статус операции
+ */
+int Bootloader_Install_Firmware(uint32_t extFlashAddress);
 /***********************************************************************************************************************
  ***********************************************************************************************************************
  *
@@ -298,13 +313,6 @@ HAL_StatusTypeDef FLASH_Utils_ResetResetCounter(void);
 uint8_t FLASH_Utils_ValidateFirmware(uint32_t startAddress);
 
 /**
- * @brief   Checks if application is up to date based on metadata
- * @param   None
- * @retval  meta_valid_t: Статус проверки приложения
- */
-meta_valid_t FLASH_Utils_IsAppUpToDate(void);
-
-/**
  * @brief   Marks application as valid and up to date
  * @param   firmwareSize: Size of firmware
  * @param   firmwareCRC: CRC of firmware
@@ -313,6 +321,14 @@ meta_valid_t FLASH_Utils_IsAppUpToDate(void);
  */
 HAL_StatusTypeDef FLASH_Utils_MarkAppAsValid(uint32_t firmwareSize,
 		uint32_t firmwareCRC, uint32_t firmwareVersion);
+
+/**
+ * @brief  Проверяет прошивку на внешней SPI Flash
+ * @param  device: Указатель на устройство SPI Flash
+ * @param  flashAddress: Базовый адрес прошивки в SPI Flash
+ * @retval 1 если прошивка валидна, 0 если нет
+ */
+uint8_t SPI_Flash_ValidateFirmware(W25QXX_Device_t *device, uint32_t flashAddress);
 
 #ifdef __cplusplus
 }

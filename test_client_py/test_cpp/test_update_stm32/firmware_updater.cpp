@@ -159,11 +159,37 @@ bool FirmwareUpdater::abortUpdate()
     return false;
 }
 
-bool FirmwareUpdater::updateFirmware(const QString &firmwarePath, quint32 blockSize, quint32 firmwareVersion)
+bool FirmwareUpdater::updateFirmware(const QString &firmwarePath, bool isBackup)
 {
-    // Устанавливаем размер блока
-    m_blockSize = blockSize;
-    
+    // извлечение и проверку метаданных
+    FirmwareMetadata fileMetadata = extractMetadataFromFile(firmwarePath);
+
+    // Проверка наличия метаданных в файле
+    if (fileMetadata.key_start != METADATA_KEY) {
+        log("ОШИБКА: В файле не найдены валидные метаданные");
+        log("Обновление прервано. Используйте только прошивки с корректными метаданными.");
+        return false; // Отменяем обновление если нет метаданных
+    }
+
+    // Получаем метаданные с устройства для сравнения
+    FirmwareMetadata deviceMetadata;
+    if (getDeviceMetadata(deviceMetadata)) {
+        // Сравниваем имена проектов
+        if (fileMetadata.key_start == METADATA_KEY && deviceMetadata.key_start == METADATA_KEY) {
+            QString fileProjName = QString::fromUtf8(fileMetadata.name_proj);
+            QString deviceProjName = QString::fromUtf8(deviceMetadata.name_proj);
+
+            if (fileProjName != deviceProjName) {
+                log(QString("ПРЕДУПРЕЖДЕНИЕ: Несоответствие имён проектов!"));
+                log(QString("Файл: '%1'").arg(fileProjName));
+                log(QString("Устройство: '%1'").arg(deviceProjName));
+
+                // Можно добавить диалог подтверждения
+                // return false; // или диалог пользователю
+            }
+        }
+    }
+
     // Открываем файл прошивки
     QFile firmwareFile(firmwarePath);
     if (!firmwareFile.open(QIODevice::ReadOnly)) {
@@ -182,8 +208,11 @@ bool FirmwareUpdater::updateFirmware(const QString &firmwarePath, quint32 blockS
     log(QString("Файл прошивки: %1").arg(firmwarePath));
     log(QString("Размер: %1 байт").arg(firmwareSize));
     log(QString("CRC32: 0x%1").arg(QString::number(m_firmwareCrc, 16).toUpper().rightJustified(8, '0')));
-    log(QString("Версия: 0x%1").arg(QString::number(firmwareVersion, 16).toUpper().rightJustified(8, '0')));
+    log(QString("Версия: 0x%1").arg(QString::number(fileMetadata.version, 16).toUpper().rightJustified(8, '0')));
     
+    log(QString("Используется версия из метаданных: 0x%1").arg(QString::number(fileMetadata.version, 16).toUpper().rightJustified(8, '0')));
+    // Если версия не задана, использовать из метаданных файла
+
     // Проверяем, подключены ли мы к устройству
     if (!isConnected()) {
         log("Ошибка: не подключен к устройству");
@@ -211,7 +240,7 @@ bool FirmwareUpdater::updateFirmware(const QString &firmwarePath, quint32 blockS
     }
     
     // Начинаем процесс обновления
-    if (!startUpdate(firmwareSize, firmwareVersion)) {
+    if (!startUpdate(firmwareSize, fileMetadata.version, isBackup)) {
         return false;
     }
     
@@ -253,8 +282,13 @@ bool FirmwareUpdater::updateFirmware(const QString &firmwarePath, quint32 blockS
         quint32 finalError;
         if (getDeviceStatus(finalStatus, finalError)) {
             if (finalStatus == UPDATE_STATUS_COMPLETE || finalStatus == UPDATE_STATUS_READY_REBOOT) {
-                log("Обновление прошивки успешно завершено");
-                log("Устройство будет перезагружено для применения обновлений");
+                QString updateType = isBackup ? "резервной" : "основной";
+                log(QString("Обновление %1 прошивки успешно завершено").arg(updateType));
+                if (!isBackup) {
+                    log("Устройство будет перезагружено для применения обновлений");
+                } else {
+                    log("Устройство готово к использованию резервной прошивки");
+                }
                 success = true;
             } else {
                 log(QString("Обновление завершилось с неожиданным статусом: %1")
@@ -263,7 +297,7 @@ bool FirmwareUpdater::updateFirmware(const QString &firmwarePath, quint32 blockS
             }
         }
     }
-    
+
     emit updateCompleted(success);
     return success;
 }
@@ -336,8 +370,9 @@ bool FirmwareUpdater::receiveResponse(quint32 &status, quint32 &error)
     // Ожидаем ответ с таймаутом
     m_timeoutTimer->start();
     while (m_responseBuffer.size() < RESPONSE_SIZE) {
-        if (!m_socket->waitForReadyRead(3000)) {
+        if (!m_socket->waitForReadyRead(10000)) {
             if (m_socket->error() != QAbstractSocket::SocketTimeoutError || m_timeoutTimer->isActive()) {
+                log(QString("время ожидания ответа вышло"));
                 break;
             }
         }
@@ -375,14 +410,19 @@ bool FirmwareUpdater::receiveResponse(quint32 &status, quint32 &error)
     return true;
 }
 
-bool FirmwareUpdater::startUpdate(quint32 firmwareSize, quint32 firmwareVersion)
+bool FirmwareUpdater::startUpdate(quint32 firmwareSize, quint32 firmwareVersion, bool isBackup)
 {
-    log(QString("Начало процесса обновления (размер: %1 байт, версия: 0x%2)...")
+    QString updateType = isBackup ? "резервной" : "основной";
+    log(QString("Начало процесса обновления %1 прошивки (размер: %2 байт, версия: 0x%3)...")
+        .arg(updateType)
         .arg(firmwareSize)
         .arg(QString::number(firmwareVersion, 16).toUpper().rightJustified(8, '0')));
     
     for (int retry = 0; retry < m_retryCount; retry++) {
-        if (sendPacket(CMD_START_UPDATE, firmwareVersion, firmwareSize)) {
+        // Определяем команду в зависимости от типа обновления
+        quint32 command = isBackup ? CMD_START_BACKUP_UPDATE : CMD_START_UPDATE;
+
+        if (sendPacket(command, firmwareVersion, firmwareSize)) {
             quint32 status;
             quint32 error;
             
@@ -560,6 +600,102 @@ QString FirmwareUpdater::getErrorText(quint32 error) const
         default:
             return QString("Неизвестная ошибка (%1)").arg(error);
     }
+}
+
+bool FirmwareUpdater::getDeviceMetadata(FirmwareMetadata &metadata)
+{
+    log("Запрос метаданных прошивки устройства...");
+
+    if (sendPacket(CMD_GET_METADATA, 0, 0)) {
+        // Очищаем буфер и ждём расширенного ответа
+        m_responseBuffer.clear();
+
+        // Ожидаем получения данных
+        m_timeoutTimer->start();
+        while (m_responseBuffer.size() < (int)sizeof(FirmwareMetadata)) {
+            if (!m_socket->waitForReadyRead(4000)) {
+                if (m_socket->error() != QAbstractSocket::SocketTimeoutError || !m_timeoutTimer->isActive()) {
+                    log("Тайм-аут при получении метаданных");
+                    break;
+                }
+            }
+            QCoreApplication::processEvents();
+        }
+        m_timeoutTimer->stop();
+
+        if (m_responseBuffer.size() >= (int)sizeof(FirmwareMetadata)) {
+            // Разбираем расширенный ответ
+            QDataStream stream(m_responseBuffer);
+            stream.setByteOrder(QDataStream::LittleEndian);
+
+            quint32 command, status, error;
+            stream >> command >> status >> error;
+
+            if (command == CMD_RESPONSE && status == UPDATE_STATUS_IDLE) {
+                // Читаем метаданные
+                stream >> metadata.key_start >> metadata.version;
+                stream.readRawData(metadata.name_proj, sizeof(metadata.name_proj));
+                stream >> metadata.reserved;
+
+                // Проверяем валидность
+                if (metadata.key_start == METADATA_KEY) {
+                    log(QString("Получены метаданные: %1 версия %2")
+                        .arg(QString::fromUtf8(metadata.name_proj))
+                        .arg(QString::number(metadata.version, 16).toUpper().rightJustified(8, '0')));
+
+                    emit metadataReceived(metadata);
+                    return true;
+                } else {
+                    log("Получены невалидные метаданные");
+                }
+            }
+        }
+    }
+
+    log("Ошибка: не удалось получить метаданные устройства");
+    return false;
+}
+
+FirmwareMetadata FirmwareUpdater::extractMetadataFromFile(const QString &firmwarePath)
+{
+    FirmwareMetadata metadata;
+    memset(&metadata, 0, sizeof(metadata));
+
+    QFile file(firmwarePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        log(QString("Ошибка открытия файла: %1").arg(firmwarePath));
+        return metadata;
+    }
+
+    // Читаем файл с позиции METADATA_OFFSET (512 байт)
+    if (file.size() > (qint64)(512 + sizeof(FirmwareMetadata))) {
+        file.seek(512);
+        QByteArray data = file.read(sizeof(FirmwareMetadata));
+
+        if (data.size() == sizeof(FirmwareMetadata)) {
+            QDataStream stream(data);
+            stream.setByteOrder(QDataStream::LittleEndian);
+
+            stream >> metadata.key_start >> metadata.version;
+            stream.readRawData(metadata.name_proj, sizeof(metadata.name_proj));
+            stream >> metadata.reserved;
+
+            // Проверяем валидность
+            if (metadata.key_start == METADATA_KEY) {
+                log(QString("Метаданные из файла: %1 версия %2")
+                    .arg(QString::fromUtf8(metadata.name_proj))
+                    .arg(QString::number(metadata.version, 16).toUpper().rightJustified(8, '0')));
+            } else {
+                log("В файле не найдены валидные метаданные");
+                memset(&metadata, 0, sizeof(metadata));
+            }
+        }
+    } else {
+        log("Файл слишком мал для содержания метаданных");
+    }
+
+    file.close();
+    return metadata;
 }
 
 void FirmwareUpdater::log(const QString &message)

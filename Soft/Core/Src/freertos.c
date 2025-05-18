@@ -57,7 +57,7 @@ osMessageQId rxDataUART2Handle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-
+static uint8_t InitSpiFlash(void);
 /* USER CODE END FunctionPrototypes */
 
 void StartMainTask(void const * argument);
@@ -226,22 +226,66 @@ void EthTask(void const * argument)
 void BootloaderTask(void const * argument)
 {
   /* USER CODE BEGIN BootloaderTask */
+  // Инициализация SPI Flash
+  InitSpiFlash();
   // Краткая задержка перед началом работы, чтобы дать другим задачам инициализироваться
   osDelay(500);
 
+  	  // если нет прошивок нигде то ждем прошивку через программатор
+	if((BootloaderData.status.State == BOOTLOADER_STATE_ERROR)&&
+			(BootloaderData.status.ErrorCode == BOOTLOADER_ERROR_RECOVERY_FAILED))
+	{
+		HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(B_GPIO_Port, B_Pin, GPIO_PIN_SET);
+
+		int out = 1;
+		while(out)
+		{
+			HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_RESET);
+			osDelay(300);
+			HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET);
+			osDelay(300);
+		}
+	}
   /* Infinite loop */
   for(;;)
   {
     // Вызываем функцию обработки состояния загрузчика
-    Bootloader_Run();
+	Bootloader_ProcessState();
 
-    // Короткая задержка для передачи управления другим задачам
-    osDelay(10);
+    // если все ок тут мы не должны быть
+    osDelay(1000);
+	NVIC_SystemReset();
   }
   /* USER CODE END BootloaderTask */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+static uint8_t InitSpiFlash(void) {
+    // Настройка пинов для SPI Flash
+    pins_spi_t csPin = {SPI3_CS_GPIO_Port, SPI3_CS_Pin};
+    pins_spi_t wpPin = {WP_GPIO_Port, WP_Pin};
+    pins_spi_t holdPin = {HOLD_GPIO_Port, HOLD_Pin};
 
+    // Инициализация устройства SPI Flash
+    W25QXX_InitDevice(&w25qxx_dev);
+
+    // Инициализация SPI Flash с настройками
+    if (!W25QXX_Init(&w25qxx_dev, &hspi3, 0, csPin, wpPin, holdPin, 1)) {
+        // Ошибка инициализации - индикация
+        HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET);
+        return 0;
+    }
+
+    // Успешная инициализация - короткий сигнал зеленым светодиодом
+    HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_RESET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_SET);
+
+    return 1;
+}
 /* USER CODE END Application */

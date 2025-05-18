@@ -23,6 +23,9 @@ private slots:
     void onSelectFirmwareClicked();
     void onUpdateClicked();
     void onAbortClicked();
+    void onMetadataReceived(const FirmwareMetadata &metadata);
+    void onFirmwareSelected(const QString &firmwarePath);
+    void onMetadataMismatch(const QString &fileProject, const QString &deviceProject);
 
     // Слоты для обработки событий от FirmwareUpdater
     void onUpdateProgress(int percent, quint32 currentBlock, quint32 totalBlocks);
