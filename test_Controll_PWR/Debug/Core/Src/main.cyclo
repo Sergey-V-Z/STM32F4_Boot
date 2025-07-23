@@ -1,0 +1,19 @@
+../Drivers/CMSIS/Include/core_cm4.h:1938:34:void __NVIC_SystemReset()	1
+../Core/Src/main.cpp:140:5:int main()	12
+../Core/Src/main.cpp:368:6:void SystemClock_Config()	3
+../Core/Src/main.cpp:643:9:uint8_t ReadStraps()	9
+../Core/Src/main.cpp:690:6:void finishedBlink()	2
+../Core/Src/main.cpp:716:6:void timoutBlink()	2
+../Core/Src/main.cpp:735:5:int set_i2c_dev(uint8_t, uint8_t, uint8_t)	5
+../Core/Src/main.cpp:778:5:int del_Name_dev(uint8_t)	2
+../Core/Src/main.cpp:811:6:void setRange_i2c_dev(uint8_t, uint8_t)	3
+../Core/Src/main.cpp:825:6:void cleanAll_i2c_dev()	2
+../Core/Src/main.cpp:833:6:void del_all_dev()	3
+../Core/Src/main.cpp:855:6:void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef*, uint16_t)	10
+../Core/Src/main.cpp:922:6:void HAL_UART_RxCpltCallback(UART_HandleTypeDef*)	2
+../Core/Src/main.cpp:937:6:void HAL_UART_TxCpltCallback(UART_HandleTypeDef*)	2
+../Core/Src/main.cpp:960:6:void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef*)	2
+../Core/Src/main.cpp:977:6:void Error_Handler()	1
+../Core/Src/main.cpp:986:1:void __static_initialization_and_destruction_0(int, int)	5
+../Core/Src/main.cpp:986:1:cpp)	1
+../Core/Src/main.cpp:986:1:cpp)	1

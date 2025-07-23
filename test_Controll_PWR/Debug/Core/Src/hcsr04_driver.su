@@ -1,0 +1,5 @@
+../Core/Src/hcsr04_driver.cpp:11:6:void HCSR04Driver::init(TIM_TypeDef*, uint32_t, uint32_t, float)	88	static
+../Core/Src/hcsr04_driver.cpp:97:6:void HCSR04Driver::_acknowledgeTimerUpdate()	16	static
+../Core/Src/hcsr04_driver.cpp:108:6:void HCSR04Driver::_acknowledgeChannelCapture()	16	static
+../Core/Src/hcsr04_driver.cpp:125:7:float HCSR04Driver::getDistanceInSeconds()	16	static
+../Core/Src/hcsr04_driver.cpp:134:7:float HCSR04Driver::getDistance()	24	static

@@ -1,0 +1,11 @@
+../Core/Src/firmware_update.cpp:26:6:void FirmwareUpdate_Init(flash*)	16	static
+../Core/Src/firmware_update.cpp:44:6:void FirmwareUpdate_Deinit()	8	static
+../Core/Src/firmware_update.cpp:67:10:uint32_t FirmwareUpdate_GetStatus(uint32_t*)	24	static
+../Core/Src/firmware_update.cpp:93:9:uint8_t FirmwareUpdate_StartTask()	24	static
+../Core/Src/firmware_update.cpp:130:9:uint8_t FirmwareUpdate_StartUpdate(uint32_t, uint32_t)	72	static
+../Core/Src/firmware_update.cpp:195:9:uint8_t FirmwareUpdate_StartBackupUpdate(uint32_t, uint32_t)	72	static
+../Core/Src/firmware_update.cpp:263:9:uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t, const uint8_t*, uint32_t, uint32_t)	1080	static
+../Core/Src/firmware_update.cpp:343:9:uint8_t FirmwareUpdate_EndUpdate(uint32_t)	208	static
+../Core/Src/firmware_update.cpp:506:9:uint8_t FirmwareUpdate_AbortUpdate()	8	static
+../Core/Src/firmware_update.cpp:545:6:void DumpFirmwareHex(flash*, uint32_t, uint32_t, uint8_t, uint32_t)	216	static
+../Core/Src/firmware_update.cpp:625:13:void FirmwareUpdateTask(void*)	24	static

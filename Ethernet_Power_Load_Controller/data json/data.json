@@ -1,0 +1,193 @@
+type_data : 1 установки для IP
+			2 настройки каналов
+			3 комманды
+			4 получитьвсе настройки
+			5 установить настройки моста
+			6 получить настройки моста
+	
+Обект с настройками каналов
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 2,
+	"obj_ch": [
+			{
+			"num": 0,
+			"dev_addr": 1,
+			"ch_dev": 0,
+			"PWM": 0
+			},	
+			{
+			"num": 1,
+			"dev_addr": 1,
+			"ch_dev": 1,
+			"PWM": 0
+			},	
+			{
+			"num": 2,
+			"dev_addr": 1,
+			"ch_dev": 2,
+			"PWM": 0
+			}
+			,	
+			{
+			"num": 3,
+			"dev_addr": 2,
+			"ch_dev": 0,
+			"PWM": 0
+			},	
+			{
+			"num": 4,
+			"dev_addr": 2,
+			"ch_dev": 1,
+			"PWM": 0
+			},	
+			{
+			"num": 5,
+			"dev_addr": 2,
+			"ch_dev": 2,
+			"PWM": 0
+			}
+	],
+	"obj_ip" : {
+		"IP" : "",
+		"MAC" : "",
+		"GATEWAY" : "",
+		"MASK" : "",
+		"DNS" : "",
+		"DHCP" : false,
+		"version" : 
+	}
+	
+}
+
+Обект IP настроек ответ на хост
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 1,
+	"obj" : {
+		"IP" : "",
+		"MAC" : "",
+		"GATEWAY" : "",
+		"MASK" : "",
+		"DNS" : "",
+		"DHCP" : false,
+		"version" : 
+	}
+}
+
+обекта от компютера
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 1,
+	"save_settings": true,
+	"obj" : {
+		"IP" : "",
+		"setIP": true,
+		"MAC" : "",
+		"setMAC": true,
+		"GATEWAY" : "",
+		"setGATEWAY": true,
+		"MASK" : "",
+		"setMASK": true,
+		"DNS" : "",
+		"setDNS": true,
+		"DHCP" : false,
+		"setDHCP": true
+	}
+}
+
+
+комманды
+enum
+	1: auto set
+	2: add device
+	3: del device
+	4: on_off chanel
+	5: reboot
+
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 3,
+	"obj" : {
+		"id_cmd": 1,
+		"Addr_start": 1,
+		"Count_dev": 4
+	}
+}
+
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 3,
+	"obj" : {
+		"id_cmd": 2,
+		"Num": 1,
+		"Dev_addr": 1,
+		"CH_dev": 1
+	}	
+}
+
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 3,
+	"obj" : {
+		"id_cmd": 3,
+		"Num": 1
+	}
+}
+
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 3,
+	"obj" : {
+		"id_cmd": 4,
+		"Num": 1,
+		"PWM": 1000,
+		"On": true,
+		"All": false
+	}
+}
+
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 3,
+	"obj" : {
+		"id_cmd": 5,
+	}
+	
+}
+
+// настройки моста
+//0-RTU 1-stream
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 5,
+	"obj" : {
+		"mode": 0, 
+		"setMode": true,
+		"port": 502,
+		"setPort": true,
+		"bod": 115200,
+		"setbod": true
+	}
+}
+
+//0-RTU 1-stream
+{
+	"id": 1,
+	"name_device": "pwr controller",
+	"type_data": 6,
+	"obj" : {
+		"mode": 0,
+		"port": 502,
+		"bod": 115200,
+	}
+}

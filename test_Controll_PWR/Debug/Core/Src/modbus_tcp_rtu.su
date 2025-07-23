@@ -1,0 +1,7 @@
+../Core/Src/modbus_tcp_rtu.cpp:57:10:uint16_t get_transaction_id(uint8_t*)	16	static
+../Core/Src/modbus_tcp_rtu.cpp:61:10:uint16_t usMBCRC16(uint8_t*, uint16_t)	24	static
+../Core/Src/modbus_tcp_rtu.cpp:77:10:uint16_t calculate_crc16(uint8_t*, int)	32	static
+../Core/Src/modbus_tcp_rtu.cpp:96:9:uint8_t verify_rtu_crc(uint8_t*, int)	24	static
+../Core/Src/modbus_tcp_rtu.cpp:109:5:int tcp_to_rtu(uint8_t*, int, uint8_t*, uint16_t*)	32	static
+../Core/Src/modbus_tcp_rtu.cpp:129:5:int rtu_to_tcp(uint8_t*, int, uint8_t*, uint16_t)	24	static
+../Core/Src/modbus_tcp_rtu.cpp:157:6:void print_packet(uint8_t*, int, const char*)	32	static

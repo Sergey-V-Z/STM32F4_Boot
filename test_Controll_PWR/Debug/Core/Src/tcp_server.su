@@ -1,0 +1,9 @@
+../Drivers/CMSIS/Include/core_cm4.h:1938:34:void __NVIC_SystemReset()	4	static,ignoring_inline_asm
+../Core/Src/tcp_server.cpp:26:9:uint8_t FirmwareUpdateServer_Init()	8	static
+../Core/Src/tcp_server.cpp:41:6:void FirmwareUpdateServer_Deinit()	8	static
+../Core/Src/tcp_server.cpp:51:9:uint8_t FirmwareUpdateServer_Start()	24	static
+../Core/Src/tcp_server.cpp:79:6:void FirmwareUpdateServer_Stop()	8	static
+../Core/Src/tcp_server.cpp:112:9:uint8_t FirmwareUpdateServer_IsRunning()	4	static
+../Core/Src/tcp_server.cpp:121:13:void TCPServerTask(void*)	24	static
+../Core/Src/tcp_server.cpp:209:16:uint8_t ProcessClientRequest(netconn*)	96	static
+../Core/Src/tcp_server.cpp:439:13:void SendResponse(netconn*, uint32_t, uint32_t)	40	static

@@ -1,6 +1,0 @@
-../Core/Src/crc.c:29:10:crc32_calculate	4	static
-../Core/Src/crc.c:49:10:CRC_Calculate	16	static
-../Core/Src/crc.c:95:9:CRC_ValidateFirmware	8	static
-../Core/Src/crc.c:124:10:CRC_CalculateAndAppend	16	static
-../Core/Src/crc.c:143:10:CRC_CalculateMetadata	16	static
-../Core/Src/crc.c:169:9:CRC_ValidateExternalData	288	static
