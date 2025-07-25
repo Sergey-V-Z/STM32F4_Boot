@@ -838,7 +838,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
         while (__HAL_UART_GET_FLAG(huart, UART_FLAG_TC) != SET) {
             // Ожидаем завершения передачи
         };
-        memcpy(message_rx, RX_buff, Size);
+        memcpy(message_rx, UART_rx, Size);
         // Отправляем сообщение в очередь с таймаутом 0
         osStatus status = osMessagePut(rxDataUART1Handle, (uint32_t)Size, 0);
         if (status != osOK) {
@@ -852,7 +852,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
             status = osMessagePut(rxDataUART1Handle, (uint32_t)Size, 0);
         }
 
-        HAL_UARTEx_ReceiveToIdle_DMA(huart, (uint8_t*)RX_buff, UART_RX_LENGTH);
+        HAL_UARTEx_ReceiveToIdle_DMA(huart, UART_rx, UART_RX_LENGTH);
         __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
 	}
 }

@@ -15,6 +15,7 @@ using namespace std;
 #include <vector>
 #include "device_API.h"
 #include "main.h"
+#include "protocol.h"
 
 /*variables ---------------------------------------------------------*/
 extern settings_t settings;

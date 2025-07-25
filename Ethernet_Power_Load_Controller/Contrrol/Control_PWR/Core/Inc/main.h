@@ -96,7 +96,9 @@ static const uint16_t crc16_table[256] = {
     0x6E17, 0x7E36, 0x4E55, 0x5E74, 0x2E93, 0x3EB2, 0x0ED1, 0x1EF0
 };
 
+extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart6;
+extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_usart6_rx;
 extern DMA_HandleTypeDef hdma_usart6_tx;
 extern SPI_HandleTypeDef hspi3;
@@ -287,6 +289,7 @@ typedef enum {
 	MOSFET_6CH = 30,
 }PCBType;
 
+// Структура заголовка UART протокола: [address][cmd][size]
 typedef struct
 {
 	uint32_t 	PWM;			// шим на каннале
@@ -455,22 +458,9 @@ extern chName_t NameCH[MAX_CH_NAME];
 extern DMA_HandleTypeDef hdma_usart1_rx;
 extern UART_HandleTypeDef huart1;
 extern osMessageQId rxDataUART1Handle;
-extern uint16_t TX_buff[];
-extern uint16_t RX_buff[];
-void deserialize_ch_data(uint8_t *buff, uint16_t size, pwm_ch_t *chanels);
-void serialize_ch_data(uint8_t *buff, uint16_t *size, pwm_ch_t *chanels);
-void serialize_ret_pwm_data(uint8_t *buff, uint16_t *size, ret_pwm_ch_t *data);
-void deserialize_ret_pwm_data(uint8_t *buff, ret_pwm_ch_t *data);
-void clear_ret_pwm_data(ret_pwm_ch_t *data);
-void clear_pwm_data(pwm_ch_t *data);
+extern uint8_t UART_tx[];
+extern uint8_t UART_rx[];
 
-HAL_StatusTypeDef send_uart_packet(uint8_t addr, cmd_t cmd, uint8_t *data, uint16_t data_len);
-uint8_t parse_uart_packet(uint8_t *data, uint16_t data_len, cmd_t *cmd, uint8_t *data_out, uint16_t *data_out_len);
-void serialize_dev_to_buff(uint8_t *buff, uint16_t *size, const DEV_t *dev);
-void deserialize_buff_to_dev(const uint8_t *buff, DEV_t *dev);
-uint8_t verify_ret_pwm_data(const uint8_t *buff, const DEV_t *dev);
-uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev);
-HAL_StatusTypeDef send_pwm_ch_to_dev(const DEV_t *dev);
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
