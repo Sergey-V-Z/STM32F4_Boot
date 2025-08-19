@@ -214,7 +214,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
     PacketHeader *header;
     uint8_t result = 0;
     uint8_t command;
-    uint32_t block_number;
+    uint32_t variable;
     uint32_t data_size;
     uint32_t crc;
 
@@ -253,81 +253,102 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
     // Разбираем заголовок
     header = (PacketHeader *)g_rxBuffer;
     command = header->command;
-    block_number = header->block_number;
+    variable = header->variable;
     data_size = header->size;
-
-    // Проверяем валидность команды
-    if (command < CMD_PING || command > CMD_REBOOT) {
-        STM_LOG("Invalid command: %u", command);
-        SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_CMD);
-        return 4;
-    }
 
     //STM_LOG("Received command: %u, Block: %lu, Size: %lu", command, block_number, data_size);
 
     // Обрабатываем команду
     switch (command) {
         case CMD_PING:
+        {
             // Простая проверка связи
             SendResponse(client, UPDATE_STATUS_IDLE, 0);
             break;
+        }
 
         case CMD_START_UPDATE:
+        {
+            // получить метаданные из g_rxBuffer
+            meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+            // Проверяем валидность метаданных
+            if (metadata->key_start != METADATA_KEY) {
+                STM_LOG("Invalid metadata key in backup update request");
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
+                return 5;
+            }
+
             // Начинаем процесс обновления
-            result = FirmwareUpdate_StartUpdate(data_size, block_number);
+            result = FirmwareUpdate_StartUpdate(variable, metadata);
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
             } else {
                 SendResponse(client, UPDATE_STATUS_ERROR, result);
             }
             break;
+        }
 
         case CMD_START_BACKUP_UPDATE:
+        {
+            // получить метаданные из g_rxBuffer
+            meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+            // Проверяем валидность метаданных
+            if (metadata->key_start != METADATA_KEY) {
+                STM_LOG("Invalid metadata key in backup update request");
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
+                return 5;
+            }
+
+            // Проверяем, что размер прошивки не превышает максимально допустимый
+            if (variable > SPI_FLASH_BACKUP_FW_SIZE) {
+                STM_LOG("Backup firmware size exceeds maximum allowed: %lu bytes", variable);
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
+                return 6;
+            }
+
+            // variable это размер всей прошивки
             // Начинаем процесс обновления резервной прошивки
-            result = FirmwareUpdate_StartBackupUpdate(data_size, block_number);
+            result = FirmwareUpdate_StartBackupUpdate(variable, metadata);
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
             } else {
                 SendResponse(client, UPDATE_STATUS_ERROR, result);
             }
             break;
+        }
 
         case CMD_FIRMWARE_DATA:
-            {
-                // Определяем смещение до данных
-                uint8_t *data_ptr = g_rxBuffer + PACKET_HEADER_SIZE;
+        {
+            // Определяем смещение до данных
+            uint8_t *data_ptr = g_rxBuffer + PACKET_HEADER_SIZE;
 
-                // Проверяем размер пакета
-                if (data_len < PACKET_HEADER_SIZE + data_size) {
-                    STM_LOG("Invalid FIRMWARE_DATA packet size: %u bytes, expected: %lu bytes",
-                           data_len, PACKET_HEADER_SIZE + data_size);
-                    SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
-                    result = 5;
-                    break;
-                }
-
-                // Вычисляем и проверяем CRC блока
-                crc = crc32_calculate(data_ptr, data_size, 0);
-
-                // Обрабатываем блок данных прошивки
-                result = FirmwareUpdate_ProcessDataBlock(
-                    block_number,
-                    data_ptr,
-                    data_size,
-                    crc
-                );
-
-                if (result == UPDATE_ERROR_NONE) {
-                    SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
-                } else {
-                    SendResponse(client, UPDATE_STATUS_ERROR, result);
-                }
+            // Проверяем размер пакета
+            if (data_len < PACKET_HEADER_SIZE + data_size) {
+                STM_LOG("Invalid FIRMWARE_DATA packet size: %u bytes, expected: %lu bytes", data_len, PACKET_HEADER_SIZE + data_size);
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
+                result = 5;
+                break;
             }
-            break;
 
+            // Вычисляем и проверяем CRC блока
+            crc = crc32_calculate(data_ptr, data_size, 0);
+
+            // Обрабатываем блок данных прошивки
+            result = FirmwareUpdate_ProcessDataBlock(variable, data_ptr, data_size, crc );
+
+            if (result == UPDATE_ERROR_NONE) {
+                SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
+            } else {
+                SendResponse(client, UPDATE_STATUS_ERROR, result);
+            }
+
+            break;   
+        }
+            
         case CMD_END_UPDATE:
+        {
             // Завершаем процесс обновления
-            crc = block_number; // Используем поле block_number для передачи CRC
+            crc = variable; // Используем поле variable для передачи CRC
             result = FirmwareUpdate_EndUpdate(crc);
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_COMPLETE, UPDATE_ERROR_NONE);
@@ -335,16 +356,18 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
                 SendResponse(client, UPDATE_STATUS_ERROR, result);
             }
             break;
+        }
 
         case CMD_GET_STATUS:
-            {
-                uint32_t error;
-                uint32_t status = FirmwareUpdate_GetStatus(&error);
-                SendResponse(client, status, error);
-            }
+        {
+            uint32_t error;
+            uint32_t status = FirmwareUpdate_GetStatus(&error);
+            SendResponse(client, status, error);
             break;
-
+        }
+            
         case CMD_ABORT_UPDATE:
+        {
             // Отменяем процесс обновления
             result = FirmwareUpdate_AbortUpdate();
             if (result == UPDATE_ERROR_NONE) {
@@ -353,38 +376,39 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
                 SendResponse(client, UPDATE_STATUS_ERROR, result);
             }
             break;
+        }
 
         case CMD_GET_METADATA:
-            {
-                // Читаем метаданные из текущей прошивки
-                meta_t* metadata = (meta_t*)METADATA_ADDRESS;
+        {
+            // Читаем метаданные из текущей прошивки
+            meta_t* metadata = (meta_t*)METADATA_ADDRESS;
 
-                // Создаем расширенный ответ
-                MetadataResponsePacket* response = (MetadataResponsePacket*)g_txBuffer;
-                response->command = CMD_RESPONSE;
-                response->status = UPDATE_STATUS_IDLE;
-                response->error = UPDATE_ERROR_NONE;
+            // Создаем расширенный ответ
+            MetadataResponsePacket* response = (MetadataResponsePacket*)g_txBuffer;
+            response->command = CMD_RESPONSE;
+            response->status = UPDATE_STATUS_IDLE;
+            response->error = UPDATE_ERROR_NONE;
 
-                // Копируем метаданные, проверяя валидность
-                if (metadata->key_start == METADATA_KEY) {
-                    memcpy(&response->metadata, metadata, sizeof(meta_t));
-                    STM_LOG("Metadata retrieved: %s v%lu",
-                            response->metadata.name_proj,
-                            response->metadata.version);
-                } else {
-                    // Если метаданные не найдены, заполняем пустыми значениями
-                    memset(&response->metadata, 0, sizeof(meta_t));
-                    STM_LOG("No valid metadata found, sending empty response");
-                }
-
-                // Отправляем расширенный ответ
-                err_t err = netconn_write(client, g_txBuffer, METADATA_RESPONSE_SIZE, NETCONN_COPY);
-                if (err != ERR_OK) {
-                    STM_LOG("Failed to send metadata response: %d", err);
-                }
+            // Копируем метаданные, проверяя валидность
+            if (metadata->key_start == METADATA_KEY) {
+                memcpy(&response->metadata, metadata, sizeof(meta_t));
+                STM_LOG("Metadata retrieved: %s v%lu",
+                        response->metadata.name_proj,
+                        response->metadata.version);
+            } else {
+                // Если метаданные не найдены, заполняем пустыми значениями
+                memset(&response->metadata, 0, sizeof(meta_t));
+                STM_LOG("No valid metadata found, sending empty response");
             }
-            break;
 
+            // Отправляем расширенный ответ
+            err_t err = netconn_write(client, g_txBuffer, METADATA_RESPONSE_SIZE, NETCONN_COPY);
+            if (err != ERR_OK) {
+                STM_LOG("Failed to send metadata response: %d", err);
+            }
+            break;  
+        }
+            
         case CMD_REBOOT:
         {
         	//SendResponse(client, UPDATE_STATUS_READY_REBOOT, UPDATE_ERROR_NONE);
@@ -419,11 +443,35 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
             break;
         }
+
+        case CMD_START_SECONDARY_UPDATE:
+        {
+            // Получаем метаданные из g_rxBuffer
+            meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+            // Проверяем валидность метаданных
+            if (metadata->key_start != METADATA_KEY) {
+                STM_LOG("Invalid metadata key in secondary update request");
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
+                return 5;
+            }
+
+            // Начинаем процесс обновления вторичной платы
+            result = FirmwareUpdate_StartSecondaryUpdate(variable, metadata);
+            if (result == UPDATE_ERROR_NONE) {
+                SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
+            } else {
+                SendResponse(client, UPDATE_STATUS_ERROR, result);
+            }   
+            break;
+        }
+
         default:
+        {
             STM_LOG("Unknown command: 0x%02X", command);
             SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_CMD);
             result = 7;
             break;
+        }
     }
 
     return result;

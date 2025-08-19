@@ -82,9 +82,9 @@ extern led LED_error;
 extern led LED_OSstart;
 
 void action_ip(cJSON *obj, bool save);
-void actoin_ch_set(cJSON *obj);
-void actoin_cmd(cJSON *obj);
-void actoin_settings_data(cJSON *obj);
+void action_ch_set(cJSON *obj);
+void action_cmd(cJSON *obj);
+void action_settings_data(cJSON *obj);
 void action_bridge(cJSON *obj, bool save);
 void action_bridge_data(cJSON *obj);
 //структуры для netcon
@@ -281,15 +281,11 @@ void mainTask(void const * argument)
   	/* Запускаем TCP-сервер (он будет работать всегда) */
   	FirmwareUpdateServer_Start();
 
-  	/* Запускаем задачу обновления прошивки */
-  	//FirmwareUpdate_StartTask();
-
   	STM_LOG("Firmware updater ready");
 
 	HAL_StatusTypeDef status1;
 	//uint8_t channelForName = 0;
 	uint16_t Address = 0;
-    cmd_t cmd = cmd_t::data;
     uint8_t *rx_data = NULL;
     uint16_t rx_data_size = 0;
 
@@ -298,52 +294,69 @@ void mainTask(void const * argument)
 
     uint32_t pcs_dev = auto_search_dev(devices, MAX_ADR_DEV);
 
-    // выполнить связывание 
+    // выполнить связывание
+	for (int var = 0; var <= pcs_dev; ++var)
+	{
+		// check device address
+		if ((devices[var].Addr >= START_ADR_I2C) && (devices[var].Addr <= (START_ADR_I2C + MAX_ADR_DEV)))
+		{
+			for (int i = 0; i < 3; ++i)
+			{
+				NameCH[devices[var].ch[i].Name_ch].dev = &devices[var];
+				NameCH[devices[var].ch[i].Name_ch].Channel_number = i;
+			}
+		}
+	}
 
 	/* Infinite loop */
 	for(;;)
 	{
 
-        for (int var = 0; var < MAX_ADR_DEV; ++var) {
+        for (int var = 0; var < pcs_dev; ++var) {
 
-            if((devices[var].Addr >= START_ADR_I2C) && (devices[var].Addr <= (START_ADR_I2C + MAX_ADR_DEV))){
+			if(devices[var].Addr == 0)
+			{
+				continue;
+			}
 
-                if(devices[var].Addr == 0)
-                {
-                    continue;
-                }
+			// добавить мютекс для зашиты devices
 
-                //отправить данные devices[var]
-                if(send_pwm_ch_to_dev(&devices[var]) != HAL_OK)
-                {
-                    continue;
-                }
+			//отправить данные devices[var]
+			if(send_pwm_ch_to_dev(&devices[var]) != HAL_OK)
+			{
+				continue;
+			}
 
-                // ожидаем ответ
-                osEvent evt = osMessageGet(rxDataUART1Handle, 5000); // 5 секунд
+			// ожидаем ответ
+			osEvent evt = osMessageGet(rxDataUART1Handle, 100); // ждем ответ
 
-                if (evt.status == osEventMessage){
-                    uint32_t size = evt.value.v;
+			if (evt.status == osEventMessage){
+				uint32_t size = evt.value.v;
+
+				uint8_t *rx_data = nullptr;
+				rx_data_size = 0;
+				Header_t header;
+
+				uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size); // парсим пакет
+
+				if (header.cmd != cmd_t::data)
+				{
+					continue;
+				}
+
+				if(rx_data != nullptr){
+					// разборка данных
+					deserialize_buff_to_dev(rx_data, &devices[var]);
+				}else{
+					continue;
+				}
 
 
-                    uint8_t *rx_data = nullptr;
-                    rx_data_size = 0;
-                    Header_t header;
 
-                    uart_parse_packet(message_rx, size, &header, rx_data, &rx_data_size); // парсим пакет
+			}else if (evt.status == osEventTimeout) {
+				// В случае тайм-аута, просто выводим информационное сообщение и продолжаем
+			}
 
-                    if (cmd != cmd_t::data)
-                    {
-                        continue;
-                    }
-                    
-                    // разборка данных
-
-                }else if (evt.status == osEventTimeout) {
-                    // В случае тайм-аута, просто выводим информационное сообщение и продолжаем
-                }
-
-            }
             osDelay(10);
         }
         osDelay(10);
@@ -718,29 +731,43 @@ void uart_Task(void const * argument)
 				if (cJSON_IsNumber(type_data)) {
 					switch (type_data->valueint) {
 					case 1: // ip settings
+					{
 						action_ip(obj, save_set);
 						break;
+					}
 					case 2: // chanels settings
-						actoin_ch_set(obj);
+					{
+						action_ch_set(obj);
 						break;
+					}
 					case 3:
-						actoin_cmd(obj);
+					{
+						action_cmd(obj);
 						break;
+					}
 					case 4:
-						actoin_settings_data(obj);
+					{
+						action_settings_data(obj);
 						//STM_LOG("Empty type_data num");
 						break;
+					}
 					case 5:
+					{
 						action_bridge(obj, save_set);
 						//STM_LOG("Empty type_data num");
 						break;
+					}
 					case 6:
+					{
 						action_bridge_data(obj);
 						//STM_LOG("Empty type_data num");
 						break;
+					}
 					default:
+					{
 						STM_LOG("data type not registered");
 						break;
+					}
 					}
 				} else {
 					STM_LOG("Invalid type data");
@@ -779,6 +806,8 @@ void LoggerTask(void const * argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+
+// Получение настроек сети от хоста
 void action_ip(cJSON *obj, bool save)
 {
     cJSON *j_IP = cJSON_GetObjectItemCaseSensitive(obj, "IP");
@@ -1044,7 +1073,8 @@ void action_ip(cJSON *obj, bool save)
     }
 }
 
-void actoin_ch_set(cJSON *obj)
+// работа с каналами
+void action_ch_set(cJSON *obj)
 {
 	//STM_LOG("Auto set channels start");
 	if(settings.devices_depth != 0)
@@ -1082,7 +1112,8 @@ void actoin_ch_set(cJSON *obj)
 
 }
 
-void actoin_cmd(cJSON *obj)
+// Обработка команд
+void action_cmd(cJSON *obj)
 {
 	cJSON *id_cmd = cJSON_GetObjectItemCaseSensitive(obj, "id_cmd");
 
@@ -1195,7 +1226,8 @@ void actoin_cmd(cJSON *obj)
 	}
 }
 
-void actoin_settings_data(cJSON *obj)
+// Подготовка и отправка настроек сети на хост
+void action_settings_data(cJSON *obj)
 {
 	cJSON *j_all_settings_obj = cJSON_CreateObject();
 	cJSON *obj_ch = cJSON_CreateArray();
@@ -1310,7 +1342,8 @@ void actoin_settings_data(cJSON *obj)
 	cJSON_Delete(j_all_settings_obj);
 
 }
-// настройки моста
+
+// Получение данных моста с хоста
 void action_bridge(cJSON *obj, bool save)
 {
     cJSON *j_mode = cJSON_GetObjectItemCaseSensitive(obj, "mode");
@@ -1361,6 +1394,7 @@ void action_bridge(cJSON *obj, bool save)
     }
 }
 
+// Подготовка и отправка данных моста на хост
 void action_bridge_data(cJSON *obj)
 {
     cJSON *j_all_settings_obj = cJSON_CreateObject();
@@ -1390,7 +1424,8 @@ void action_bridge_data(cJSON *obj)
     char *str_to_host = cJSON_Print(j_all_settings_obj);
 
     if (str_to_host) {
-        STM_LOG("%s", str_to_host);
+    	STM_LOG_xx("%s", str_to_host);
+        STM_LOG_xx("\x03\x04"); // ETX + EOT
         cJSON_free(str_to_host);
     }
 

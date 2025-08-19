@@ -32,6 +32,7 @@
 **
 ******************************************************************************
 */
+METADATA_OFFSET = 512; /* Смещение от начала основной программы */
 
 /* Entry Point */
 ENTRY(Reset_Handler)
@@ -47,7 +48,7 @@ MEMORY
 {
   CCMRAM    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 64K
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 128K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 512K
+  FLASH    (rx)    : ORIGIN = 0x8010000,   LENGTH = 448K
 }
 
 /* Sections */
@@ -58,6 +59,18 @@ SECTIONS
   {
     . = ALIGN(4);
     KEEP(*(.isr_vector)) /* Startup code */
+    . = ALIGN(4);
+    _eirsVector = .;  /* Определяем символ для конца вектора прерываний */
+  } >FLASH
+
+  /* Секция для метаданных */
+  .metadata :
+  {
+    /* . = _eirsVector + 64;  Дополнительный отступ 64 байта для безопасности */
+    . = ALIGN(4);
+    /* Помещаем метаданные по смещению METADATA_OFFSET от начала FLASH */
+    . = ORIGIN(FLASH) + METADATA_OFFSET;
+    KEEP(*(.metadata)) /* Сохраняем секцию метаданных даже если она не используется */
     . = ALIGN(4);
   } >FLASH
 
@@ -160,6 +173,13 @@ SECTIONS
   */
   .ccmram :
   {
+    . = ALIGN(8);
+    . = . + _Min_Heap_Size;
+    . = ALIGN(8);
+  } >CCMRAM
+  
+  .ccmram :
+  {
     . = ALIGN(4);
     _sccmram = .;       /* create a global symbol at ccmram start */
     *(.ccmram)
@@ -168,6 +188,13 @@ SECTIONS
     . = ALIGN(4);
     _eccmram = .;       /* create a global symbol at ccmram end */
   } >CCMRAM AT> FLASH
+
+  .ccmram :
+  {
+    . = ALIGN(8);
+    . = . + _Min_Heap_Size;
+    . = ALIGN(8);
+  } >CCMRAM
 
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);
@@ -191,7 +218,7 @@ SECTIONS
     . = ALIGN(8);
     PROVIDE ( end = . );
     PROVIDE ( _end = . );
-    . = . + _Min_Heap_Size;
+    /*. = . + _Min_Heap_Size;*/
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM

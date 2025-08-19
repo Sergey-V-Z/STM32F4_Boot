@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2023 STMicroelectronics.
+  * Copyright (c) 2025 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -117,8 +117,7 @@
 #define CHECKSUM_CHECK_ICMP6 0
 /*-----------------------------------------------------------------------------*/
 /* USER CODE BEGIN 1 */
- /*----- Value in opt.h for LWIP_DHCP: 0 -----*/
-#define LWIP_DHCP 1
+
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

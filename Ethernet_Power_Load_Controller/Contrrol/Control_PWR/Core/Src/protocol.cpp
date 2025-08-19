@@ -357,11 +357,12 @@ HAL_StatusTypeDef uart_send_packet(UART_HandleTypeDef *huart, uint8_t addr, uint
     UART_tx[size - 2] = crc & 0xFF;
     UART_tx[size - 1] = (crc >> 8) & 0xFF;
 
+    // заменить на дма возможно тут задержка
     return HAL_UART_Transmit(huart, UART_tx, size, 100);
 }
 
 // Получение пакета из буфера (возвращает длину полезных данных, либо 0 если ошибка CRC/размера)
-uint16_t uart_parse_packet(uint8_t *buf, uint16_t buf_len, Header_t *header, uint8_t *data, uint16_t *data_len)
+uint16_t uart_parse_packet(uint8_t *buf, uint16_t buf_len, Header_t *header, uint8_t **data, uint16_t *data_len)
 {
   if (buf_len < 5) // минимум: адрес(1)+cmd(1)+size(1)+crc(2)
     return 0;
@@ -389,7 +390,7 @@ uint16_t uart_parse_packet(uint8_t *buf, uint16_t buf_len, Header_t *header, uin
   if (data && data_len)
   {
     *data_len = packet_size - 5;
-    data = &buf[3];
+    *data = &buf[3];
   }
   return packet_size;
 }
@@ -426,7 +427,7 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
 {
 
   uint16_t data_len = 0;
-  uint8_t rx_data[10];
+  uint8_t *rx_data = nullptr;
 
   uint16_t found_count = 0;
   for (uint8_t i = 0; i < size_dev; ++i) {
@@ -440,7 +441,7 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
       continue;
     }
 
-    osEvent evt = osMessageGet(rxDataUART1Handle, 200);
+    osEvent evt = osMessageGet(rxDataUART1Handle, 50);
     if (evt.status != osEventMessage) {
       continue;
     }
@@ -448,7 +449,7 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
     uint16_t rx_size = evt.value.v;
 
     Header_t header;
-    if (!uart_parse_packet(message_rx, rx_size, &header, rx_data, &data_len)) {
+    if (!uart_parse_packet(message_rx, rx_size, &header, &rx_data, &data_len)) {
       continue;
     }
 
@@ -466,6 +467,11 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
     if (rx_size < data_len + 5) {
       STM_LOG(LOG_ERR "Invalid data size %d for address %d", rx_size, addr);
       continue;
+    }
+
+    if(rx_data == nullptr)
+    {
+    	continue;
     }
 
     dev[i].Addr = addr;
@@ -542,12 +548,12 @@ void deserialize_buff_to_dev(uint8_t *buff, DEV_t *dev) {
     dev->ch[4].On_off = pwm_data.en5;
     dev->ch[5].On_off = pwm_data.en6;
 
-    dev->ch[0].PWM_out = pwm_data.PWM1;
-    dev->ch[1].PWM_out = pwm_data.PWM2;
-    dev->ch[2].PWM_out = pwm_data.PWM3;
-    dev->ch[3].PWM_out = pwm_data.PWM4;
-    dev->ch[4].PWM_out = pwm_data.PWM5;
-    dev->ch[5].PWM_out = pwm_data.PWM6;
+    dev->ch[0].PWM = pwm_data.PWM1;
+    dev->ch[1].PWM = pwm_data.PWM2;
+    dev->ch[2].PWM = pwm_data.PWM3;
+    dev->ch[3].PWM = pwm_data.PWM4;
+    dev->ch[4].PWM = pwm_data.PWM5;
+    dev->ch[5].PWM = pwm_data.PWM6;
 
     // добавить обработку ADC значений, в DEV_t это Current
     dev->ch[0].Current = pwm_data.ADC_CH1;

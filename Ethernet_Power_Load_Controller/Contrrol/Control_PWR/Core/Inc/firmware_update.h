@@ -14,16 +14,27 @@
 #include "main.h"
 
 // Команды протокола обновления
-#define CMD_PING                	0x00000001    // Проверка связи
-#define CMD_START_UPDATE        	0x00000002    // Начало процесса обновления
-#define CMD_FIRMWARE_DATA       	0x00000003    // Блок данных прошивки
-#define CMD_END_UPDATE          	0x00000004    // Завершение процесса обновления
-#define CMD_GET_STATUS          	0x00000005    // Запрос статуса обновления
-#define CMD_ABORT_UPDATE        	0x00000006    // Отмена процесса обновления
-#define CMD_START_BACKUP_UPDATE   	0x00000007    // Начало процесса обновления резервной прошивки
-#define CMD_GET_METADATA          	0x00000008    // Получить метаданные текущей прошивки
-#define CMD_REBOOT          		0x00000009    // Перезагрузка
-#define CMD_RESPONSE            	0x00000080    // Ответ сервера
+typedef enum {
+	CMD_PING                    = 0x00000001,    // Проверка связи
+	CMD_START_UPDATE            = 0x00000002,    // Начало процесса обновления
+	CMD_FIRMWARE_DATA           = 0x00000003,    // Блок данных прошивки
+	CMD_END_UPDATE              = 0x00000004,    // Завершение процесса обновления
+	CMD_GET_STATUS              = 0x00000005,    // Запрос статуса обновления
+	CMD_ABORT_UPDATE            = 0x00000006,    // Отмена процесса обновления
+	CMD_START_BACKUP_UPDATE     = 0x00000007,    // Начало процесса обновления резервной прошивки
+	CMD_GET_METADATA            = 0x00000008,    // Получить метаданные текущей прошивки
+	CMD_REBOOT                  = 0x00000009,    // Перезагрузка
+	// команды для прошивки вторичных плат такие же как и для основной прошивки. общие команды для всех плат, различие будет только в метаданных!
+	CMD_SECOND_PING             = 0x0000000A,    // Проверка связи вторичной платы
+	CMD_START_SAVE_SECOND       = 0x0000000B,    // Начало процесса сохранения на spi flash вторичной платы
+	CMD_START_SECONDARY_UPDATE  = 0x0000000C,    // Начало процесса обновления вторичной платы
+	CMD_SECOND_FIRMWARE_DATA    = 0x0000000D,    // Блок данных прошивки вторичной платы
+	CMD_END_SECOND_UPDATE       = 0x0000000E,    // Завершение обновления прошивки вторичной платы
+	CMD_GET_SECOND_METADATA     = 0x0000000F,    // Получить метаданные прошивки вторичной платы
+	CMD_SECOND_REBOOT           = 0x00000010,    // Перезагрузка вторичной платы
+	
+	CMD_RESPONSE                = 0x00000080     // Ответ сервера
+} firmware_update_cmd_t;
 
 // Коды состояния обновления
 #define UPDATE_STATUS_IDLE            0x00000000    // Ожидание
@@ -41,6 +52,9 @@
 #define UPDATE_ERROR_SEQ_ERROR        0x00000005    // Ошибка последовательности
 #define UPDATE_ERROR_BUSY             0x00000006    // Система занята
 #define UPDATE_ERROR_ABORT            0x00000007    // Обновление отменено
+#define UPDATE_ERROR_NO_SECTOR_FOUND  0x00000008	// Не найден свободный сектор для прошивки
+#define UPDATE_ERROR_INVALID_METADATA  0x00000009    // Неверные метаданные
+#define UPDATE_ERROR_INVALID_PARAM     0x0000000A    // Неверный тип прошивки
 
 // Размер буфера для приема данных прошивки
 #define FIRMWARE_BUFFER_SIZE          1024
@@ -66,6 +80,18 @@
 #define SPI_FLASH_APP_DATA_ADDRESS 0x00101000 /* Start of application data area */
 #define SPI_FLASH_APP_DATA_SIZE 0x00080000 /* 512KB for application data */
 
+
+#define SPI_SECOND_CONFIG_ADDRESS 0x00181000 /* Хранит структуры данных для вторичной платы где и какая прошивка лежит */
+#define SPI_SECOND_CONFIG_SIZE 0x00001000 /* 4KB for secondary configuration */
+
+#define SPI_FIRMWARE_SIZE 0x00040000 /* 256KB for firmware */
+#define SPI_FIRMWARE_S1_ADDRESS (SPI_SECOND_CONFIG_ADDRESS + SPI_SECOND_CONFIG_SIZE) /* Адрес начала прошивки для вторичной платы сектор 1 */
+#define SPI_FIRMWARE_S2_ADDRESS (SPI_FIRMWARE_S1_ADDRESS + SPI_FIRMWARE_SIZE) /* Адрес начала прошивки для вторичной платы сектор 2 */
+#define SPI_FIRMWARE_S3_ADDRESS (SPI_FIRMWARE_S2_ADDRESS + SPI_FIRMWARE_SIZE) /* Адрес начала прошивки для вторичной платы сектор 3 */
+#define SPI_FIRMWARE_S4_ADDRESS (SPI_FIRMWARE_S3_ADDRESS + SPI_FIRMWARE_SIZE) /* Адрес начала прошивки для вторичной платы сектор 4 */
+#define SPI_FIRMWARE_S5_ADDRESS (SPI_FIRMWARE_S4_ADDRESS + SPI_FIRMWARE_SIZE) /* Адрес начала прошивки для вторичной платы сектор 5 */
+#define SPI_FIRMWARE_S6_ADDRESS (SPI_FIRMWARE_S5_ADDRESS + SPI_FIRMWARE_SIZE) /* Адрес начала прошивки для вторичной платы сектор 6 */
+
 /* Flash constants */
 #define FLASH_PAGE_SIZE 0x4000 /* 16 KB pages for STM32F407 */
 #define FLASH_SECTOR_SIZE FLASH_PAGE_SIZE
@@ -75,6 +101,13 @@
 
 #define BOOTLOADER_VERSION 0x00010000 /* Bootloader version 1.0.0.0 */
 #define BOOTLOADER_FIRMWARE_BUFFER_SIZE 1024 /* Size of buffer for firmware updates */
+
+typedef enum {
+    Main = 0,
+    Backup,
+    Secondary,
+    Unknown
+} fw_type_t;
 
 /* Bootloader state enum */
 typedef enum {
@@ -86,8 +119,8 @@ typedef enum {
 // Формат заголовка пакета (упрощенный)
 typedef struct {
 	uint32_t command;       // Команда
-	uint32_t size;         // Размер данных
-	uint32_t block_number; // Номер блока или доп. параметр
+	uint32_t variable; 		// Номер блока или доп. параметр
+	uint32_t size;          // Размер данных после заголовка
 } PacketHeader;
 
 // Формат ответного пакета
@@ -113,12 +146,14 @@ typedef struct {
 	uint32_t totalSize;                    // Общий размер прошивки
 	uint32_t receivedSize;                 // Полученный размер
 	uint32_t expectedBlockNumber;          // Ожидаемый номер блока
-	uint32_t firmwareVersion;              // Версия прошивки
 	uint32_t firmwareCRC;                  // Расчетный CRC32 прошивки
 	uint32_t declaredCRC;                  // Заявленный CRC32 прошивки
 	SemaphoreHandle_t mutex;               // Мьютекс для доступа к структуре
-	uint8_t isBackupUpdate;                // Флаг обновления резервной прошивки
+	uint32_t sectorAddress;                 // Адрес сектора для записи прошивки
+	fw_type_t fw_type;                      // Тип прошивки
+	meta_t metadata;                    // Метаданные прошивки
 } FirmwareUpdateContext;
+
 
 /* Recovery mode reason enum */
 typedef enum {
@@ -185,6 +220,47 @@ typedef struct {
 
 } boot_data_t;
 
+// перечисления статусов обновления прошивки вторичных плат
+typedef enum {
+	SECOND_UPDATE_STATUS_IDLE = 0,          // Ожидание
+	SECOND_UPDATE_STATUS_IN_PROGRESS,       // В процессе
+	SECOND_UPDATE_STATUS_ERROR,             // Ошибка
+	SECOND_UPDATE_STATUS_READY_REBOOT       // Готов к перезагрузке
+} Second_Update_Status_t;
+
+// ответ от вторичной платы
+typedef enum status_flash_t
+{
+    idle = 0,
+    write,
+    ready,
+    error,
+    OK_boot_data,
+    ERR_read_boot_data,
+    ERR_write_boot_data,
+    ERR_crc_boot_data,
+    EMPTY_boot_data,
+    ERR_null_ptr
+} status_flash_t;
+
+// структура контекст обновления прошивки вторичной платы
+// их этого контекста будет сделан массив в нем должно хранится метаданные прошивки вторичной платы
+// и состояние обновления прошивки вторичной платы
+// для каждой вторичной платы будет свой контекст
+// в этом контексте будет хранится адрес платы на шине, тип платы, адрес для хранения прошивки во внешней флеш-памяти, общий размер прошивки
+typedef struct {
+	uint32_t boardType;                   // Тип платы
+	uint32_t firmwareStorageAddress;      // Адрес для хранения прошивки во внешней флеш-памяти
+	uint32_t firmwareSize;                // Общий размер прошивки
+	FirmwareUpdateContext updateContext;  // Контекст обновления прошивки
+	Second_Update_Status_t status;
+	status_flash_t error;                    // Код ошибки (если есть)
+	meta_t metadata;                // Метаданные прошивки вторичной платы
+} FirmwareUpdateContext_Sec;
+
+
+
+
 // Функции инициализации и управления
 void FirmwareUpdate_Init(flash *spiFlash);
 void FirmwareUpdate_Deinit(void);
@@ -192,11 +268,18 @@ uint32_t FirmwareUpdate_GetStatus(uint32_t *error);
 uint8_t FirmwareUpdate_StartTask(void);
 
 // Функции обработки команд протокола
-uint8_t FirmwareUpdate_StartUpdate(uint32_t size, uint32_t version);
+uint8_t FirmwareUpdate_StartUpdate(uint32_t size, meta_t *metadata);
 uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t *data, uint32_t size, uint32_t crc);
 uint8_t FirmwareUpdate_EndUpdate(uint32_t crc);
 uint8_t FirmwareUpdate_AbortUpdate(void);
-uint8_t FirmwareUpdate_StartBackupUpdate(uint32_t size, uint32_t version);
+uint8_t FirmwareUpdate_StartBackupUpdate(uint32_t size, meta_t *metadata);
 
 void DumpFirmwareHex(flash* spiFlash, uint32_t startAddress, uint32_t length, uint8_t bytesPerLine, uint32_t delayMs);
+void FirmwareUpdate_PrintMetadata(void);
+
+// Функция старта обновления вторичной платы
+uint8_t FirmwareUpdate_StartSecondaryUpdate(uint32_t size, meta_t *metadata);
+uint32_t FirmwareUpdate_FindSectorForSecondaryFirmware(meta_t *metadata);
+uint8_t FirmwareUpdate_GetSecondaryMetaData(uint32_t sectorAddress, meta_t* metadata);
+
 #endif // FIRMWARE_UPDATE_H

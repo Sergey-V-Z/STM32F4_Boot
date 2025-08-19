@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
  ******************************************************************************
- * File Name          : LWIP.c
- * Description        : This file provides initialization code for LWIP
- *                      middleWare.
- ******************************************************************************
- * @attention
- *
- * Copyright (c) 2023 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- */
+  * File Name          : LWIP.c
+  * Description        : This file provides initialization code for LWIP
+  *                      middleWare.
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -28,7 +28,6 @@
 #include "ethernetif.h"
 
 /* USER CODE BEGIN 0 */
-extern settings_t settings;
 
 /* USER CODE END 0 */
 /* Private function prototypes -----------------------------------------------*/
@@ -50,7 +49,7 @@ uint8_t NETMASK_ADDRESS[4];
 uint8_t GATEWAY_ADDRESS[4];
 
 /* USER CODE BEGIN 2 */
-
+extern settings_t settings;
 /* USER CODE END 2 */
 
 /**
@@ -115,16 +114,11 @@ void MX_LWIP_Init(void)
 
   /* Create the Ethernet link handler thread */
 /* USER CODE BEGIN H7_OS_THREAD_DEF_CREATE_CMSIS_RTOS_V1 */
-	osThreadDef(EthLink, ethernet_link_thread, osPriorityBelowNormal, 0, configMINIMAL_STACK_SIZE *2);
-	osThreadCreate (osThread(EthLink), &gnetif);
+  osThreadDef(EthLink, ethernet_link_thread, osPriorityBelowNormal, 0, configMINIMAL_STACK_SIZE *2);
+  osThreadCreate (osThread(EthLink), &gnetif);
 /* USER CODE END H7_OS_THREAD_DEF_CREATE_CMSIS_RTOS_V1 */
 
 /* USER CODE BEGIN 3 */
-
-	if(settings.DHCPset){
-		/* Start DHCP negotiation for a network interface (IPv4) */
-		dhcp_start(&gnetif);
-	}
 
 /* USER CODE END 3 */
 }
@@ -167,7 +161,7 @@ sio_fd_t sio_open(u8_t devnum)
   sio_fd_t sd;
 
 /* USER CODE BEGIN 7 */
-	sd = 0; // dummy code
+  sd = 0; // dummy code
 /* USER CODE END 7 */
 
   return sd;
@@ -203,7 +197,7 @@ u32_t sio_read(sio_fd_t fd, u8_t *data, u32_t len)
   u32_t recved_bytes;
 
 /* USER CODE BEGIN 9 */
-	recved_bytes = 0; // dummy code
+  recved_bytes = 0; // dummy code
 /* USER CODE END 9 */
   return recved_bytes;
 }
@@ -222,7 +216,7 @@ u32_t sio_tryread(sio_fd_t fd, u8_t *data, u32_t len)
   u32_t recved_bytes;
 
 /* USER CODE BEGIN 10 */
-	recved_bytes = 0; // dummy code
+  recved_bytes = 0; // dummy code
 /* USER CODE END 10 */
   return recved_bytes;
 }
