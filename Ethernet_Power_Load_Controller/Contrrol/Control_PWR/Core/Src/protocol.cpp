@@ -3,6 +3,11 @@
 extern uint8_t message_rx[message_RX_LENGTH];
 // формат пакета [addres][cmd][size][data...][crc_lo][crc_hi]
 
+// приватные функции
+void serialize_dev_to_buff(uint8_t *buff, uint16_t *size, const DEV_t *dev);
+void deserialize_buff_to_dev(uint8_t *buff, DEV_t *dev);
+HAL_StatusTypeDef send_pwm_ch_to_dev(const DEV_t *dev);
+
 // Быстрая с таблицей
 uint16_t crc16_fast(const uint8_t *data, uint16_t len) {
     uint16_t crc = 0xFFFF;
@@ -369,13 +374,13 @@ uint16_t uart_parse_packet(uint8_t *buf, uint16_t buf_len, Header_t *header, uin
 
   uint8_t packet_addr = buf[0];
   uint8_t packet_cmd = buf[1];
-  uint8_t packet_size = buf[2];
+  uint8_t data_size = buf[2];
 
-  if (packet_size > buf_len || packet_size < 5)
+  if (data_size > buf_len || data_size < 5)
     return 0;
 
-  uint16_t crc_calc = crc16_fast(buf, packet_size - 2);
-  uint16_t crc_recv = buf[packet_size - 2] | (buf[packet_size - 1] << 8);
+  uint16_t crc_calc = crc16_fast(buf, data_size - 2);
+  uint16_t crc_recv = buf[data_size - 2] | (buf[data_size - 1] << 8);
 
   if (crc_calc != crc_recv)
     return 0;
@@ -384,28 +389,15 @@ uint16_t uart_parse_packet(uint8_t *buf, uint16_t buf_len, Header_t *header, uin
   {
     header->address = packet_addr;
     header->cmd = packet_cmd;
-    header->size = packet_size;
+    header->size = data_size;
   }
 
   if (data && data_len)
   {
-    *data_len = packet_size - 5;
+    *data_len = data_size;
     *data = &buf[3];
   }
-  return packet_size;
-}
-
-// Отправка пакета статуса (r_status) из MainTask
-void send_status_packet(UART_HandleTypeDef *huart, uint32_t own_addr, uint8_t tupe_pcb, uint8_t stat_flash)
-{
-  uint8_t data[6];
-  data[0] = own_addr;
-  data[1] = tupe_pcb;
-  data[2] = stat_flash;
-  data[3] = 0;
-  data[4] = 0;
-  data[5] = 0;
-  uart_send_packet(huart, own_addr, r_status, data, 6);
+  return data_size;
 }
 
 // Функция отправки пакета данных ret_pwm_ch_t по UART
@@ -423,20 +415,39 @@ void send_ret_pwm_packet(UART_HandleTypeDef *huart, uint8_t addr, ret_pwm_ch_t *
 
 
 // мастер *****************************************************************************************************************************
+// принимает массив девайсов для заполнения и его размер
 uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
 {
+  if (dev == nullptr || size_dev == 0) {
+    STM_LOG(LOG_ERR "Invalid device array or size");
+    return 0;
+  }
 
   uint16_t data_len = 0;
   uint8_t *rx_data = nullptr;
 
   uint16_t found_count = 0;
+
+  if (deviceMutexHandle == nullptr)
+  {
+    STM_LOG(LOG_ERR "Device mutex handle is null");
+    return 0;
+  }
+
+  osStatus status = osMutexWait(deviceMutexHandle, 5000);
+  if (status != osOK) {
+    STM_LOG(LOG_ERR "Failed to acquire device mutex");
+    return 0;
+  }
+
+  // сканируем
   for (uint8_t i = 0; i < size_dev; ++i) {
-    uint8_t addr = START_ADR_I2C + i;
+    uint8_t addr = START_ADR_DEV + i;
 
     uint8_t tx_buf[8] = {0};
 
     // Обновленный вызов uart_send_packet: теперь требуется указать UART_HandleTypeDef*
-    HAL_StatusTypeDef status = uart_send_packet(&huart1, addr, r_status, tx_buf, sizeof(tx_buf));
+    HAL_StatusTypeDef status = uart_send_packet(&huart1, addr, status, tx_buf, sizeof(tx_buf));
     if (status != HAL_OK) {
       continue;
     }
@@ -459,7 +470,7 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
       continue;
     }
 
-    if (header.cmd != r_status) {
+    if (header.cmd != status) {
       STM_LOG(LOG_ERR "Unexpected command %d for address %d", header.cmd, addr);
       continue;
     }
@@ -474,30 +485,33 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
     	continue;
     }
 
+    secondary_status_t sec_status = *(secondary_status_t *)&rx_data;
+
     dev[i].Addr = addr;
     dev[i].AddrFromDev = header.address;
-    dev[i].TypePCB = (PCBType)rx_data[1];
+    dev[i].TypePCB = (PCBType)sec_status.type_pcb;
     //dev[i].StatFlash = rx_data[2];
 
-    if (rx_data[3] == 3) {
-      dev[i].ch[0].used = true;
-      dev[i].ch[1].used = true;
-      dev[i].ch[2].used = true;
-      dev[i].ch[3].used = false;
-      dev[i].ch[4].used = false;
-      dev[i].ch[5].used = false;
-    } else if (rx_data[3] == 6) {
+    if (sec_status.count_ch == 6) {
       dev[i].ch[0].used = true;
       dev[i].ch[1].used = true;
       dev[i].ch[2].used = true;
       dev[i].ch[3].used = true;
       dev[i].ch[4].used = true;
       dev[i].ch[5].used = true;
+    }else{
+      dev[i].ch[0].used = true;
+      dev[i].ch[1].used = true;
+      dev[i].ch[2].used = true;
+      dev[i].ch[3].used = false;
+      dev[i].ch[4].used = false;
+      dev[i].ch[5].used = false;
     }
 
     found_count++;
   }
-
+  
+  osMutexRelease(deviceMutexHandle);
   return found_count;
 }
 
@@ -598,4 +612,284 @@ HAL_StatusTypeDef send_pwm_ch_to_dev(const DEV_t *dev)
 
   // Отправляем пакет на устройство
   return uart_send_packet(&huart1, dev->Addr, cmd_t::data, buff, size);
+}
+
+// обмен данными каналов с устройством
+uint8_t exchange_channel_data_with_device(DEV_t *dev)
+{
+  if (dev == nullptr) {
+    STM_LOG(LOG_ERR "DEV_t pointer is null");
+    return 0;
+  }
+
+  uint16_t rx_data_size = 0;
+
+  // мютекс для защиты доступа к устройствам
+  if (deviceMutexHandle == nullptr)
+  {
+    STM_LOG(LOG_ERR "Device mutex handle is null");
+    return 0;
+  }
+  
+  osStatus ret = osMutexWait(deviceMutexHandle, 5000);
+  if (ret != osOK)
+  {
+    STM_LOG(LOG_ERR "Failed to acquire device mutex");
+    return 0;
+  }
+
+  //отправить данные devices[var]
+  if(send_pwm_ch_to_dev(dev) != HAL_OK)
+  {
+    return 0;
+  }
+
+  // ожидаем ответ
+  osEvent evt = osMessageGet(rxDataUART1Handle, 100); // ждем ответ
+
+  if (evt.status == osEventMessage){
+    uint32_t size = evt.value.v;
+
+    uint8_t *rx_data = nullptr;
+    rx_data_size = 0;
+    Header_t header;
+
+    uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size); // парсим пакет
+
+    if (header.cmd != cmd_t::data)
+    {
+      return 0; // неверная команда
+    }
+
+    if(rx_data != nullptr){
+      // разборка данных
+      deserialize_buff_to_dev(rx_data, dev);
+    }else{
+      return 0;
+    }
+
+
+
+  }else if (evt.status == osEventTimeout) {
+    // В случае тайм-аута, просто выводим информационное сообщение и продолжаем
+    STM_LOG(LOG_WARN "Timeout waiting for response");
+    return 0;
+  }
+
+  osMutexRelease(deviceMutexHandle);
+  return 1;
+}
+
+// прочитать метаданные
+void GetSecondaryBoardMeta(DEV_t *dev, meta_t* metadata)
+{
+    if (dev == nullptr || metadata == nullptr) {
+        return;
+    }
+
+    // Отправляем команду на вторичную плату для получения метаданных
+    cmd_t cmd = cmd_t::metadata_current;
+    uart_send_packet(&huart1, dev->Addr, cmd, nullptr, 0);
+
+    // Ожидаем ответ
+    osEvent evt = osMessageGet(rxDataUART1Handle, 100); // ждем ответ
+
+    if (evt.status == osEventMessage) {
+        uint32_t size = evt.value.v;
+
+        uint8_t *rx_data = nullptr;
+        uint16_t rx_data_size = 0;
+        Header_t header;
+
+        uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size); // парсим пакет
+
+        if (header.cmd != cmd_t::data) {
+            return; // неверная команда
+        }
+
+        if (rx_data != nullptr) {
+            // разборка данных
+            if (rx_data_size >= sizeof(meta_t)) {
+                memcpy(metadata, rx_data, sizeof(meta_t));
+            }
+        }
+    }
+}
+
+// получение статуса с ожиданием и таймаутом
+HAL_StatusTypeDef GetSecondaryBoardStatus(DEV_t *dev, secondary_status_t* status, uint32_t timeout_ms)
+{
+    if (dev == nullptr || status == nullptr) {
+        return HAL_ERROR;
+    }
+
+    // Отправляем команду на вторичную плату для получения статуса
+    cmd_t cmd = cmd_t::status;
+    uart_send_packet(&huart1, dev->Addr, cmd, nullptr, 0);
+
+    // Ожидаем ответ
+    osEvent evt = osMessageGet(rxDataUART1Handle, timeout_ms); // ждем ответ
+
+    if (evt.status == osEventMessage) {
+        uint32_t size = evt.value.v;
+
+        uint8_t *rx_data = nullptr;
+        uint16_t rx_data_size = 0;
+        Header_t header;
+
+        uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size); // парсим пакет
+
+        if (header.cmd != cmd) {
+            return HAL_ERROR; // неверная команда
+        }
+
+        if (rx_data != nullptr) {
+            // разборка данных
+            if (rx_data_size >= sizeof(secondary_status_t)) {
+                memcpy(status, rx_data, sizeof(secondary_status_t));
+                return HAL_OK;
+            } else {
+                return HAL_ERROR; // недостаточно данных
+            }
+        } else {
+            return HAL_ERROR; // нет данных
+        }
+    } else if (evt.status == osEventTimeout) {
+        // В случае тайм-аута
+        STM_LOG(LOG_WARN "Timeout waiting for response");
+        return HAL_TIMEOUT;
+    }
+
+    return HAL_ERROR; // неизвестная ошибка
+}
+
+//отправка команды на вторичную плату с ожиданием ответа и таймаутом
+HAL_StatusTypeDef send_command_with_response(DEV_t *dev, cmd_t command, uint8_t *response_buffer, uint16_t *response_size, uint32_t timeout_ms) {
+    if (dev == nullptr || response_buffer == nullptr || response_size == nullptr) {
+        return HAL_ERROR;
+    }
+
+    // Отправляем команду на вторичную плату
+    uart_send_packet(&huart1, dev->Addr, command, nullptr, 0);
+
+    // Ожидаем ответ
+    osEvent evt = osMessageGet(rxDataUART1Handle, timeout_ms); // ждем ответ
+
+    if (evt.status == osEventMessage) {
+        uint32_t size = evt.value.v;
+
+        uint8_t *rx_data = nullptr;
+        uint16_t rx_data_size = 0;
+        Header_t header;
+
+        uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size); // парсим пакет
+
+        if (header.cmd != command) {
+            return HAL_ERROR; // неверная команда
+        }
+
+        if (rx_data != nullptr && rx_data_size > 0) {
+            // Копируем данные в буфер ответа
+            uint16_t copy_size = (rx_data_size < *response_size) ? rx_data_size : *response_size;
+            memcpy(response_buffer, rx_data, copy_size);
+            *response_size = copy_size;
+            return HAL_OK;
+        } else {
+            *response_size = 0;
+            return HAL_ERROR; // нет данных
+        }
+    } else if (evt.status == osEventTimeout) {
+        // В случае тайм-аута
+        STM_LOG(LOG_WARN "Timeout waiting for response");
+        *response_size = 0;
+        return HAL_TIMEOUT;
+    }
+
+    return HAL_ERROR; // неизвестная ошибка
+}
+
+//отправка команды c данными на вторичную плату с ожиданием ответа и таймаутом
+HAL_StatusTypeDef send_cmd_data_with_response(DEV_t *dev, cmd_t command, uint8_t *send_data, uint16_t send_size, uint8_t *response_buffer, uint16_t *response_size, uint32_t timeout_ms) {
+  if (dev == nullptr || response_buffer == nullptr || response_size == nullptr) {
+    return HAL_ERROR;
+  }
+
+  // Отправляем команду с данными на вторичную плату
+  uart_send_packet(&huart1, dev->Addr, command, send_data, send_size);
+
+  // Ожидаем ответ
+  osEvent evt = osMessageGet(rxDataUART1Handle, timeout_ms);
+
+  if (evt.status == osEventMessage) {
+    uint32_t size = evt.value.v;
+
+    uint8_t *rx_data = nullptr;
+    uint16_t rx_data_size = 0;
+    Header_t header;
+
+    uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size);
+
+    if (header.cmd != command) {
+      return HAL_ERROR; // неверная команда
+    }
+
+    if (rx_data != nullptr && rx_data_size > 0) {
+      // Копируем данные в буфер ответа
+      uint16_t copy_size = (rx_data_size < *response_size) ? rx_data_size : *response_size;
+      memcpy(response_buffer, rx_data, copy_size);
+      *response_size = copy_size;
+      return HAL_OK;
+    } else {
+      *response_size = 0;
+      return HAL_ERROR; // нет данных
+    }
+  } else if (evt.status == osEventTimeout) {
+    // В случае тайм-аута
+    STM_LOG(LOG_WARN "Timeout waiting for response");
+    *response_size = 0;
+    return HAL_TIMEOUT;
+  }
+
+  return HAL_ERROR; // неизвестная ошибка
+}
+
+uint8_t SetSecondaryBoardToBootloader(DEV_t *dev){
+  // читаем текущее состояние
+  if (dev == nullptr) {
+      STM_LOG(LOG_ERR "DEV_t pointer is null");
+      return 1;
+  }
+  
+  secondary_status_t status;
+  
+  // Получаем текущий статус
+  if (GetSecondaryBoardStatus(dev, &status, 1000) != HAL_OK) {
+      STM_LOG(LOG_WARN "Failed to get initial status");
+      return 1;
+  }
+
+  if(status.mode == 1){
+    return 0; // уже в загрузчике
+  }else if(status.mode == 2){
+    // Отправляем команду на вторичную плату для перехода в режим загрузчика
+    cmd_t cmd = cmd_t::enter_boot_mode;
+    uart_send_packet(&huart1, dev->Addr, cmd, nullptr, 0);
+  }
+  
+  // пауза
+  osDelay(100);
+
+  // проверка статуса в цикле с ожиданием ответа
+  for(uint8_t i = 0; i < 5; i++){
+    if (GetSecondaryBoardStatus(dev, &status, 100) == HAL_OK) {
+        if(status.mode == 1){
+          return 0; // успешно перешли в загрузчик
+        }
+    } else {
+        STM_LOG(LOG_WARN "Failed to get status on attempt %d", i+1);
+    }
+    osDelay(100);
+  }
+
+  return 1; // не удалось перейти в загрузчик
 }

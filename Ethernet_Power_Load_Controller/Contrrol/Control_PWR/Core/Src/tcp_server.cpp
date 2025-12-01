@@ -216,7 +216,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
     uint8_t command;
     uint32_t variable;
     uint32_t data_size;
-    uint32_t crc;
+    //uint32_t crc;
 
     // Принимаем данные от клиента
     err = netconn_recv(client, &netbuf);
@@ -271,6 +271,8 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
         {
             // получить метаданные из g_rxBuffer
             meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+            FWUpdateParams *update_params = (FWUpdateParams *)(g_rxBuffer + PACKET_HEADER_SIZE + sizeof(meta_t));
+
             // Проверяем валидность метаданных
             if (metadata->key_start != METADATA_KEY) {
                 STM_LOG("Invalid metadata key in backup update request");
@@ -278,8 +280,15 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
                 return 5;
             }
 
+            // Проверяем, что размер прошивки не превышает максимально допустимый
+            if (update_params->fw_size > SPI_FLASH_MAIN_FW_SIZE) {
+                STM_LOG("Main firmware size exceeds maximum allowed: %lu bytes", update_params->fw_size);
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
+                return 6;
+            }
+
             // Начинаем процесс обновления
-            result = FirmwareUpdate_StartUpdate(variable, metadata);
+            result = FirmwareUpdate_StartUpdate(metadata, update_params);
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
             } else {
@@ -292,6 +301,8 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
         {
             // получить метаданные из g_rxBuffer
             meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+            FWUpdateParams *update_params = (FWUpdateParams *)(g_rxBuffer + PACKET_HEADER_SIZE + sizeof(meta_t));
+
             // Проверяем валидность метаданных
             if (metadata->key_start != METADATA_KEY) {
                 STM_LOG("Invalid metadata key in backup update request");
@@ -300,15 +311,14 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
             }
 
             // Проверяем, что размер прошивки не превышает максимально допустимый
-            if (variable > SPI_FLASH_BACKUP_FW_SIZE) {
-                STM_LOG("Backup firmware size exceeds maximum allowed: %lu bytes", variable);
+            if (update_params->fw_size > SPI_FLASH_BACKUP_FW_SIZE) {
+                STM_LOG("Backup firmware size exceeds maximum allowed: %lu bytes", update_params->fw_size);
                 SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
                 return 6;
             }
 
-            // variable это размер всей прошивки
             // Начинаем процесс обновления резервной прошивки
-            result = FirmwareUpdate_StartBackupUpdate(variable, metadata);
+            result = FirmwareUpdate_StartBackupUpdate(metadata, update_params);
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
             } else {
@@ -331,10 +341,10 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
             }
 
             // Вычисляем и проверяем CRC блока
-            crc = crc32_calculate(data_ptr, data_size, 0);
+            //crc = crc32_calculate(data_ptr, data_size, 0);
 
             // Обрабатываем блок данных прошивки
-            result = FirmwareUpdate_ProcessDataBlock(variable, data_ptr, data_size, crc );
+            result = FirmwareUpdate_ProcessDataBlock(variable, data_ptr, data_size);
 
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
@@ -348,8 +358,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
         case CMD_END_UPDATE:
         {
             // Завершаем процесс обновления
-            crc = variable; // Используем поле variable для передачи CRC
-            result = FirmwareUpdate_EndUpdate(crc);
+            result = FirmwareUpdate_EndUpdate();
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_COMPLETE, UPDATE_ERROR_NONE);
             } else {
@@ -448,6 +457,9 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
         {
             // Получаем метаданные из g_rxBuffer
             meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+
+            FWUpdateParams *update_params = (FWUpdateParams *)(g_rxBuffer + PACKET_HEADER_SIZE + sizeof(meta_t));
+
             // Проверяем валидность метаданных
             if (metadata->key_start != METADATA_KEY) {
                 STM_LOG("Invalid metadata key in secondary update request");
@@ -456,12 +468,29 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
             }
 
             // Начинаем процесс обновления вторичной платы
-            result = FirmwareUpdate_StartSecondaryUpdate(variable, metadata);
+            result = FirmwareUpdate_StartSecondaryUpdate(metadata, update_params);
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
             } else {
                 SendResponse(client, UPDATE_STATUS_ERROR, result);
             }   
+            break;
+        }
+
+        case CMD_STATUS_CELLS:
+        {
+            GetSecondaryFirmwareConfig(&secondaryConfig);
+            // Отправляем расширенный ответ
+            err_t err = netconn_write(client, &secondaryConfig, sizeof(SecondaryFirmwareConfig), NETCONN_COPY);
+            if (err != ERR_OK) {
+                STM_LOG("Failed to send secondary firmware status response: %d", err);
+            }
+            break;  
+        }
+
+        case CMD_SECOND_FW_START:
+        {
+            STM_LOG("Starting secondary firmware update");
             break;
         }
 
@@ -503,3 +532,5 @@ static void SendResponse(struct netconn *client, uint32_t status, uint32_t error
         //STM_LOG("Response sent successfully");
     }
 }
+
+

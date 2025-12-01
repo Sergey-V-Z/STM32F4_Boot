@@ -65,12 +65,16 @@ void clear_pwm_data(pwm_ch_t *data);
 //
 HAL_StatusTypeDef uart_send_packet(UART_HandleTypeDef *huart, uint8_t addr, uint8_t cmd, const uint8_t *data, uint16_t data_len);
 uint16_t uart_parse_packet(uint8_t *buf, uint16_t buf_len, Header_t *header, uint8_t **data, uint16_t *data_len);
-void send_status_packet(UART_HandleTypeDef *huart, uint32_t own_addr, uint8_t tupe_pcb, uint8_t stat_flash);
+//void send_status_packet(UART_HandleTypeDef *huart, uint32_t own_addr, uint8_t tupe_pcb, uint8_t stat_flash);
 void send_ret_pwm_packet(UART_HandleTypeDef *huart, uint8_t addr, ret_pwm_ch_t *ret_data);
-
+HAL_StatusTypeDef GetSecondaryBoardStatus(DEV_t *dev, secondary_status_t* status, uint32_t timeout_ms);
+HAL_StatusTypeDef send_command_with_response(DEV_t *dev, cmd_t command, uint8_t *response_buffer, uint16_t *response_size, uint32_t timeout_ms);
+HAL_StatusTypeDef send_cmd_data_with_response(DEV_t *dev, cmd_t command, uint8_t *send_data, uint16_t send_size, uint8_t *response_buffer, uint16_t *response_size, uint32_t timeout_ms);
+// API
 uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev);
-void serialize_dev_to_buff(uint8_t *buff, uint16_t *size, const DEV_t *dev);
-void deserialize_buff_to_dev(uint8_t *buff, DEV_t *dev);
-HAL_StatusTypeDef send_pwm_ch_to_dev(const DEV_t *dev);
+uint8_t exchange_channel_data_with_device(DEV_t *dev);
+void GetSecondaryBoardMeta(DEV_t *dev, meta_t* metadata);
+uint8_t SetSecondaryBoardToBootloader(DEV_t *dev);
+
 
 #endif /* INC_PROTOCOL_H_ */

@@ -32,7 +32,9 @@ typedef enum {
 	CMD_END_SECOND_UPDATE       = 0x0000000E,    // Завершение обновления прошивки вторичной платы
 	CMD_GET_SECOND_METADATA     = 0x0000000F,    // Получить метаданные прошивки вторичной платы
 	CMD_SECOND_REBOOT           = 0x00000010,    // Перезагрузка вторичной платы
-	
+	CMD_STATUS_CELLS            = 0x00000011,    // отправка данных клиенту о содержании ячеек прошивок
+	CMD_SECOND_FW_START         = 0x00000012,    // старт автопрошивки из ячейки в доступные платы
+	CMD_SECOND_FW_STATUS        = 0x00000013,    // статус вторичных прошивок (сколько и каких плат подключено, какие из них прошиваются в данный момент)
 	CMD_RESPONSE                = 0x00000080     // Ответ сервера
 } firmware_update_cmd_t;
 
@@ -141,17 +143,16 @@ typedef struct {
 
 // Структура обновления
 typedef struct {
-	uint32_t status;                       // Текущий статус обновления
-	uint32_t error;                        // Код ошибки (если есть)
-	uint32_t totalSize;                    // Общий размер прошивки
-	uint32_t receivedSize;                 // Полученный размер
-	uint32_t expectedBlockNumber;          // Ожидаемый номер блока
-	uint32_t firmwareCRC;                  // Расчетный CRC32 прошивки
-	uint32_t declaredCRC;                  // Заявленный CRC32 прошивки
-	SemaphoreHandle_t mutex;               // Мьютекс для доступа к структуре
+	uint32_t status;                       	// Текущий статус обновления
+	uint32_t error;                        	// Код ошибки (если есть)
+	uint32_t receivedSize;                 	// Полученный размер
+	uint32_t expectedBlockNumber;          	// Ожидаемый номер блока
+	uint32_t firmwareCRC;                  	// Расчетный CRC32 прошивки
+	SemaphoreHandle_t mutex;               	// Мьютекс для доступа к структуре
 	uint32_t sectorAddress;                 // Адрес сектора для записи прошивки
 	fw_type_t fw_type;                      // Тип прошивки
-	meta_t metadata;                    // Метаданные прошивки
+	meta_t metadata;                    	// Метаданные прошивки
+	FWUpdateParams update_params;        	// Параметры обновления
 } FirmwareUpdateContext;
 
 
@@ -258,28 +259,31 @@ typedef struct {
 	meta_t metadata;                // Метаданные прошивки вторичной платы
 } FirmwareUpdateContext_Sec;
 
-
-
-
 // Функции инициализации и управления
 void FirmwareUpdate_Init(flash *spiFlash);
 void FirmwareUpdate_Deinit(void);
 uint32_t FirmwareUpdate_GetStatus(uint32_t *error);
-uint8_t FirmwareUpdate_StartTask(void);
 
 // Функции обработки команд протокола
-uint8_t FirmwareUpdate_StartUpdate(uint32_t size, meta_t *metadata);
-uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t *data, uint32_t size, uint32_t crc);
-uint8_t FirmwareUpdate_EndUpdate(uint32_t crc);
+uint8_t FirmwareUpdate_StartUpdate(meta_t *metadata, FWUpdateParams *update_params);
+uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t *data, uint32_t size);
+uint32_t FirmwareUpdate_EndUpdate(void);
 uint8_t FirmwareUpdate_AbortUpdate(void);
-uint8_t FirmwareUpdate_StartBackupUpdate(uint32_t size, meta_t *metadata);
+uint32_t CalculateFirmwareCRC(flash* spiFlash, uint32_t startAddress, uint32_t length);
+uint8_t FirmwareUpdate_StartBackupUpdate(meta_t *metadata, FWUpdateParams *update_params);
 
 void DumpFirmwareHex(flash* spiFlash, uint32_t startAddress, uint32_t length, uint8_t bytesPerLine, uint32_t delayMs);
 void FirmwareUpdate_PrintMetadata(void);
 
-// Функция старта обновления вторичной платы
-uint8_t FirmwareUpdate_StartSecondaryUpdate(uint32_t size, meta_t *metadata);
+// Функция старта сохранения вторичной платы
+uint8_t FirmwareUpdate_StartSecondaryUpdate(meta_t *metadata, FWUpdateParams *update_params);
 uint32_t FirmwareUpdate_FindSectorForSecondaryFirmware(meta_t *metadata);
 uint8_t FirmwareUpdate_GetSecondaryMetaData(uint32_t sectorAddress, meta_t* metadata);
+uint8_t SetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config);
+uint8_t GetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config);
+void ResetSecondaryFirmwareConfig(void);
+uint8_t TransferFirmwareToSecondaryBoard(DEV_t *dev, FirmwareUpdateCellState cell);
 
+// api работы со вторичными платами
+void FirmwareUpdate_Secondary(DEV_t *dev, uint8_t size_dev);
 #endif // FIRMWARE_UPDATE_H

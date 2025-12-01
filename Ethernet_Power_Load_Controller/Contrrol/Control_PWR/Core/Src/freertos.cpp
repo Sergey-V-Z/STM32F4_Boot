@@ -77,9 +77,9 @@ uint16_t adc_buffer2[24] = {0};
 uint8_t UART_tx[UART_TX_LENGTH]={0}; // buff
 uint8_t UART_rx[UART_RX_LENGTH]={0}; // buff
 
-extern led LED_IPadr;
-extern led LED_error;
-extern led LED_OSstart;
+extern led_t LED_IPadr;
+extern led_t LED_error;
+extern led_t LED_OSstart;
 
 void action_ip(cJSON *obj, bool save);
 void action_ch_set(cJSON *obj);
@@ -116,10 +116,13 @@ extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
 extern flash mem_spi;
 
-
+SecondaryFirmwareConfig secondaryConfig;
 //переменные для тестов
 
 uint8_t txRedy = 1;
+// мютекс для защиты доступа к устройствам
+osMutexId deviceMutexHandle;
+osMutexId varMutexDevicesHandle;
 
 /* USER CODE END Variables */
 osThreadId MainTaskHandle;
@@ -180,6 +183,11 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_MUTEX */
 	/* add mutexes, ... */
+	osMutexDef(deviceMutex);
+	deviceMutexHandle = osMutexCreate(osMutex(deviceMutex));
+
+	osMutexDef(varMutexDevices);
+	varMutexDevicesHandle = osMutexCreate(osMutex(varMutexDevices));
   /* USER CODE END RTOS_MUTEX */
 
   /* Create the semaphores(s) */
@@ -267,10 +275,24 @@ void mainTask(void const * argument)
   /* init code for LWIP */
   MX_LWIP_Init();
   /* USER CODE BEGIN mainTask */
-  //нициализируем логгер
+
+  	//нициализируем логгер
     Logger_Init(&huart6);
 
     STM_LOG("Start %s app. Ver %d", FIRMWARE_NAME, FIRMWARE_VERSION);
+
+	if (GetSecondaryFirmwareConfig(&secondaryConfig))
+	{
+		// Конфигурация успешно получена
+		STM_LOG("Secondary firmware config OK");
+	}
+	else
+	{
+		// Ошибка получения конфигурации
+		STM_LOG("Failed to get secondary firmware config");
+		ResetSecondaryFirmwareConfig(); // записывает дефолтные значения
+		STM_LOG("Secondary firmware config reset");
+	}
 
   	/* Инициализируем модуль обновления прошивки */
   	FirmwareUpdate_Init(&mem_spi);
@@ -283,11 +305,12 @@ void mainTask(void const * argument)
 
   	STM_LOG("Firmware updater ready");
 
+	
+
 	HAL_StatusTypeDef status1;
 	//uint8_t channelForName = 0;
 	uint16_t Address = 0;
     uint8_t *rx_data = NULL;
-    uint16_t rx_data_size = 0;
 
     HAL_UARTEx_ReceiveToIdle_DMA(&huart1, UART_rx, UART_RX_LENGTH);
     __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
@@ -295,10 +318,12 @@ void mainTask(void const * argument)
     uint32_t pcs_dev = auto_search_dev(devices, MAX_ADR_DEV);
 
     // выполнить связывание
+	osMutexWait(varMutexDevicesHandle, osWaitForever);
+
 	for (int var = 0; var <= pcs_dev; ++var)
 	{
 		// check device address
-		if ((devices[var].Addr >= START_ADR_I2C) && (devices[var].Addr <= (START_ADR_I2C + MAX_ADR_DEV)))
+		if ((devices[var].Addr >= START_ADR_DEV) && (devices[var].Addr <= (START_ADR_DEV + MAX_ADR_DEV)))
 		{
 			for (int i = 0; i < 3; ++i)
 			{
@@ -308,59 +333,34 @@ void mainTask(void const * argument)
 		}
 	}
 
+	osMutexRelease(varMutexDevicesHandle);
 	/* Infinite loop */
 	for(;;)
 	{
 
+		osMutexWait(varMutexDevicesHandle, osWaitForever);
+
         for (int var = 0; var < pcs_dev; ++var) {
 
+			// мютекс зашитв переменной один для обоих devices и NameCH
+
+			// если адрес устройства валидный
 			if(devices[var].Addr == 0)
 			{
 				continue;
 			}
 
-			// добавить мютекс для зашиты devices
+			exchange_channel_data_with_device(&devices[var]);
 
-			//отправить данные devices[var]
-			if(send_pwm_ch_to_dev(&devices[var]) != HAL_OK)
-			{
-				continue;
-			}
-
-			// ожидаем ответ
-			osEvent evt = osMessageGet(rxDataUART1Handle, 100); // ждем ответ
-
-			if (evt.status == osEventMessage){
-				uint32_t size = evt.value.v;
-
-				uint8_t *rx_data = nullptr;
-				rx_data_size = 0;
-				Header_t header;
-
-				uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size); // парсим пакет
-
-				if (header.cmd != cmd_t::data)
-				{
-					continue;
-				}
-
-				if(rx_data != nullptr){
-					// разборка данных
-					deserialize_buff_to_dev(rx_data, &devices[var]);
-				}else{
-					continue;
-				}
-
-
-
-			}else if (evt.status == osEventTimeout) {
-				// В случае тайм-аута, просто выводим информационное сообщение и продолжаем
-			}
-
-            osDelay(10);
+            //osDelay(10);
         }
-        osDelay(10);
+		osMutexRelease(varMutexDevicesHandle);
+
 		
+        osDelay(10);
+
+		// обновление прошивки если нужно
+		FirmwareUpdate_Secondary(devices, pcs_dev);
 		//osDelay(10);
 	}
   /* USER CODE END mainTask */
@@ -1073,7 +1073,7 @@ void action_ip(cJSON *obj, bool save)
     }
 }
 
-// работа с каналами
+// возвращает список каналов
 void action_ch_set(cJSON *obj)
 {
 	//STM_LOG("Auto set channels start");
@@ -1082,6 +1082,10 @@ void action_ch_set(cJSON *obj)
 		cJSON *j_out_obj = cJSON_CreateObject();
 		cJSON *j_arr_obj = cJSON_CreateArray();
 
+		// mutex
+		osMutexWait(varMutexDevicesHandle, osWaitForever);
+
+		// заполнение массива каналов
 		for (int var = 0; var < settings.devices_depth; ++var) {
 			cJSON *temp_obj = cJSON_CreateObject();
 			uint8_t c = NameCH[var].Channel_number;
@@ -1091,6 +1095,8 @@ void action_ch_set(cJSON *obj)
 
 			cJSON_AddItemToArray(j_arr_obj, temp_obj);
 		}
+		// mutex
+		osMutexRelease(varMutexDevicesHandle);
 
 		cJSON_AddNumberToObject(j_out_obj, "id", ID_CTRL);
 		cJSON_AddStringToObject(j_out_obj, "name_device", NAME);
@@ -1112,7 +1118,7 @@ void action_ch_set(cJSON *obj)
 
 }
 
-// Обработка команд
+// Обработка команд управления 
 void action_cmd(cJSON *obj)
 {
 	cJSON *id_cmd = cJSON_GetObjectItemCaseSensitive(obj, "id_cmd");
@@ -1191,6 +1197,10 @@ void action_cmd(cJSON *obj)
 		bool on = cJSON_IsTrue(On);
 		bool all = cJSON_IsTrue(All);
 
+		// mutex
+		osMutexWait(varMutexDevicesHandle, osWaitForever);
+
+		// mode set all channels
 		if (all) {
 			for (int name = 0; name < MAX_CH_NAME; ++name) {
 				if(NameCH[name].dev != NULL){
@@ -1211,6 +1221,8 @@ void action_cmd(cJSON *obj)
 				STM_LOG("NULL ptr dev");
 			}
 		}
+		// mutex
+		osMutexRelease(varMutexDevicesHandle);
 		break;
 	}
 	case 5:{ // reboot

@@ -1,0 +1,28 @@
+{
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/**"
+    ],
+    "files.exclude": {
+        "**/Debug/**": true,
+        "**/*.o": true,
+        "**/*.d": true,
+        "**/*.su": true,
+        "**/*.cyclo": true,
+        "**/objects.list": true,
+        "**/objects.mk": true,
+        "**/sources.mk": true,
+        "**/makefile": true,
+        "**/*.map": true,
+        "**/*.list": true
+    },
+    "search.exclude": {
+        "**/Debug/**": true,
+        "**/*.o": true,
+        "**/*.d": true,
+        "**/*.su": true,
+        "**/*.cyclo": true
+    },
+    "C_Cpp.errorSquiggles": "enabled",
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.enhancedColorization": "enabled"
+}

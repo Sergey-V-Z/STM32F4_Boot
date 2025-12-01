@@ -73,7 +73,7 @@ extern SPI_HandleTypeDef hspi3;
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
 
-#define START_ADR_I2C 1
+#define START_ADR_DEV 1
 #define MAX_ADR_DEV 16 // 16 with 0
 #define MAX_CH_NAME MAX_ADR_DEV * 6 //
 
@@ -92,13 +92,15 @@ extern SPI_HandleTypeDef hspi3;
 #define message_RX_LENGTH 512
 
 #define LOG_ERR "Err: "      // Вместо "Error: "
+#define LOG_WARN "Warn: "    // Вместо "Warning: "
 #define LOG_OK "OK"          // Вместо "Success" или "OK: "
 
 // обмен данными с другими платами
-#define UART_RX_LENGTH 256
-#define UART_TX_LENGTH 256
+#define UART_RX_LENGTH 256 + 5 // addres, cmd, size, crc*2
+#define UART_TX_LENGTH 256 + 5 // addres, cmd, size, crc*2
 // NVS key
 
+/*
 // Команды API для работы с точками (добавить в enum)
 #define CMD_SAVE_POINT     20  // Сохранить текущую позицию как точку
 #define CMD_GET_POSITION   21  // Получить текущую позицию в шагах
@@ -112,6 +114,7 @@ extern SPI_HandleTypeDef hspi3;
 #define CMD_SET_POINT 30 // Получить минимальную позицию
 
 #define MAX_POINTS			10
+*/
 
 // Структура ответа на запрос позиции
 struct position_response_t {
@@ -182,18 +185,87 @@ uint16_t usMBCRC16(uint8_t *pucFrame, uint16_t usLen);
 #define DE_M_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
+
+#define MAX_CELLS 6
+
 typedef enum cmd_t
 {
 	data = 0,
-	clear_flash,
-	w_firmware_data,
-	r_status,
-	r_metadata_curent,
-	r_metadata_next,
-	r_boot_data,
+	firmware_data,
+	status,
+	metadata_current,
+	boot_data,
 	fin_write,
+  	prepare_write,
+  	enter_boot_mode,
+} cmd_t;
 
-}cmd_t;
+/*
+typedef enum {
+	BOOTLOADER_STATE_INIT, // Инициализация загрузчика
+	BOOTLOADER_STATE_LOAD, // загрузка прошивки через UART
+	BOOTLOADER_STATE_ERROR, // ошибка загрузки
+	BOOTLOADER_STATE_JMP_APP // можно переходить в приложение.
+} s_Bootloader_State_t;
+
+
+typedef struct __attribute__((packed, aligned(4))){
+	struct s_Bootloader_Status_t {
+		s_Bootloader_State_t State; // Current state of bootloader
+		uint32_t ErrorCode; // Error code if any
+		uint8_t IsAppValid; // Is the application valid
+		uint8_t reserved; 
+		uint32_t LastFlashAddress; // Last address flashed
+		uint32_t BytesFlashed; // Number of bytes flashed
+	} status;
+
+	meta_t metadata;
+
+	uint32_t flashInitialized;
+	uint32_t reset_counter;
+	uint32_t structCRC; // CRC of this structure (except structCRC field)
+
+} s_boot_data_t;
+*/
+
+typedef enum {
+    FIRMWARE_STATUS_READY = 0x52454144, // Подтверждение выполнения команды (READ) 
+    FIRMWARE_STATUS_IDLE = 0x49444C45, // Ожидание начала прошивки (IDLE)
+    FIRMWARE_STATUS_ERASING = 0x45524153, // очистка флешки (ERAS)
+    FIRMWARE_STATUS_ERASED = 0x45525344,   // очистка флешки закончена (ERSD)
+    FIRMWARE_STATUS_WRITING = 0x57524954,  // запись во флешку (WRIT)
+    FIRMWARE_STATUS_WRITTEN = 0x57525444,  // запись во флешку закончена (WRTD)
+    FIRMWARE_STATUS_VERIFYING = 0x56455246, // завершение , проверка прошивки (VERF)
+    FIRMWARE_STATUS_VERIFIED = 0x56524644, // проверка прошивки прошла успешно (VRFD)
+    FIRMWARE_STATUS_ERROR = 0x4552524F // ошибка (ERRO)
+} s_status_flash_t;
+
+// структура получаемых данных от основного контроллера
+typedef struct {
+	uint32_t firmwareSize;// размера прошивки
+	uint32_t firmwareCRC;// CRC прошивки
+	uint32_t firmwareVersion;// версия прошивки
+	uint32_t type_pcb; // тип платы
+	uint32_t reserved1; // зарезервировано для будущего использования
+	uint32_t reserved2; // зарезервировано для будущего использования
+	uint32_t reserved3; // зарезервировано для будущего использования
+  	uint8_t name_proj[140]; // название проекта или устройства
+} Firmware_data_t;
+
+typedef enum {
+	MODE_NON = 0x00000000,
+	MODE_BOOTLOADER = 0x00000001,
+	MODE_APP = 0x00000002
+} secondary_mode_t;
+
+typedef struct{
+  uint32_t key; 			// ключ
+  uint32_t type_pcb;    	// тип платы
+  uint32_t count_ch;   		// количество каналов
+  s_status_flash_t status; 	// статус
+  secondary_mode_t mode; 			// режим 2 значит мы в приложении 1 значит в загрузчике
+  uint32_t reserved; 		// зарезервировано
+} secondary_status_t;
 
 #pragma pack(push, 1)
 typedef struct{
@@ -323,7 +395,6 @@ typedef struct {
 #pragma pack(push, 1)
 typedef struct
 {
-	//DEV_t devices[MAX_ADR_DEV]; что бы не сохранять на флешку
 	uint8_t devices_depth;
 	uint8_t	MAC[6];
 	uint8_t isON_from_settings;
@@ -334,6 +405,30 @@ typedef struct
 	set_bridge_t bridge_sett;
 }settings_t;
 #pragma pack(pop)
+
+// Структура для передачи параметров обновления прошивки
+typedef struct {
+    uint32_t fw_size;         // Размер прошивки
+    uint32_t fw_crc;          // CRC прошивки
+    uint32_t cell_num;        // номер ячейки
+    uint32_t reserved;        // Зарезервировано
+} FWUpdateParams;
+
+// структура для хранения состояния ячеек с прошивками
+typedef struct {
+	uint32_t cell_address;              // Адрес ячейки
+	uint32_t fw_size;                   // Размер прошивки
+	uint32_t fw_crc;                    // CRC прошивки
+	meta_t metadata;                    // Метаданные прошивки в ячейке
+	uint32_t load_permission;           // Разрешение на загрузку прошивки в контроллер
+} FirmwareUpdateCellState;
+
+typedef struct
+{
+	FirmwareUpdateCellState cells[MAX_CELLS]; // массив состояний ячеек
+	uint32_t active_cell;					  // активная ячейка
+	uint32_t crc;							  // CRC структуры
+} SecondaryFirmwareConfig;
 
 // Глобальный экземпляр
 extern timing_info_t mb_timing;
@@ -387,6 +482,7 @@ typedef struct {
     uint32_t queueLength;
 } LoggerStats_t;
 
+
 // Функции инициализации и работы с логгером
 void freeSlotAtomic(uint8_t slot);
 int getFreeSlotAtomic(void);
@@ -409,6 +505,9 @@ extern char txBuffer[MAX_MESSAGE_SIZE];
 extern LogMessage_t messagePool[QUEUE_SIZE];
 extern uint8_t messagePoolUsed[QUEUE_SIZE];
 extern osMutexId poolMutexHandle;
+extern osMutexId deviceMutexHandle;
+extern osMutexId varMutexDevicesHandle;
+
 extern DEV_t devices[MAX_ADR_DEV];
 extern chName_t NameCH[MAX_CH_NAME];
 
@@ -418,6 +517,8 @@ extern UART_HandleTypeDef huart1;
 extern osMessageQId rxDataUART1Handle;
 extern uint8_t UART_tx[];
 extern uint8_t UART_rx[];
+
+extern SecondaryFirmwareConfig secondaryConfig;
 
 /* USER CODE END Private defines */
 

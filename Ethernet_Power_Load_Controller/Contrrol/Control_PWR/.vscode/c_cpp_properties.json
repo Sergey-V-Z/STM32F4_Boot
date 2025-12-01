@@ -1,0 +1,47 @@
+{
+    "configurations": [
+        {
+            "name": "STM32F4",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/Core/Inc",
+                "${workspaceFolder}/Core/Src",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include",
+                "${workspaceFolder}/LWIP/App",
+                "${workspaceFolder}/LWIP/Target",
+                "${workspaceFolder}/Middlewares/Third_Party/FreeRTOS/Source/include",
+                "${workspaceFolder}/Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS",
+                "${workspaceFolder}/Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F",
+                "${workspaceFolder}/Middlewares/Third_Party/LwIP/src/include",
+                "${workspaceFolder}/Middlewares/Third_Party/LwIP/system"
+            ],
+            "defines": [
+                "STM32F407xx",
+                "STM32F4",
+                "USE_HAL_DRIVER",
+                "HSE_VALUE=25000000",
+                "HSI_VALUE=16000000",
+                "LSE_VALUE=32768",
+                "LSI_VALUE=32000",
+                "VDD_VALUE=3300",
+                "PREFETCH_ENABLE=1",
+                "INSTRUCTION_CACHE_ENABLE=1",
+                "DATA_CACHE_ENABLE=1"
+            ],
+            "compilerPath": "arm-none-eabi-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-arm",
+            "compilerArgs": [
+                "-mcpu=cortex-m4",
+                "-mthumb",
+                "-mfpu=fpv4-sp-d16",
+                "-mfloat-abi=hard"
+            ]
+        }
+    ],
+    "version": 4
+}

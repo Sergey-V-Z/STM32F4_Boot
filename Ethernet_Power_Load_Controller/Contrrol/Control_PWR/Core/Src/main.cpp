@@ -31,8 +31,8 @@
 #include "Delay_us_DWT.h"
 #include "LED.h"
 #include "flash_spi.h"
-
 #include "cmsis_os.h"
+#include "firmware_update.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,9 +65,9 @@ DEV_t devices[MAX_ADR_DEV];
 
 uint32_t count_tic = 0; // для замеров времени выполнения кода
 
-led LED_IPadr;
-led LED_error;
-led LED_OSstart;
+led_t LED_IPadr;
+led_t LED_error;
+led_t LED_OSstart;
 
 flash mem_spi;
 // for i2c
@@ -132,44 +132,46 @@ void timoutBlink();
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 
-    /* USER CODE BEGIN 1 */
+  /* USER CODE BEGIN 1 */
     /* Настройка вектора прерываний на адрес приложения */
-    SCB->VTOR = FLASH_BASE | 0x10000; /* 0x08010000 */
+    //SCB->VTOR = FLASH_BASE | 0x10000; /* 0x08010000 */
+    extern uint32_t _app_start;
+    SCB->VTOR = (uint32_t)&_app_start;
     __enable_irq();
-    /* USER CODE END 1 */
+  /* USER CODE END 1 */
 
-    /* MCU Configuration--------------------------------------------------------*/
+  /* MCU Configuration--------------------------------------------------------*/
 
-    /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-    HAL_Init();
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-    /* USER CODE BEGIN Init */
+  /* USER CODE BEGIN Init */
 
-    /* USER CODE END Init */
+  /* USER CODE END Init */
 
-    /* Configure the system clock */
-    SystemClock_Config();
+  /* Configure the system clock */
+  SystemClock_Config();
 
-    /* USER CODE BEGIN SysInit */
+  /* USER CODE BEGIN SysInit */
 
-    /* USER CODE END SysInit */
+  /* USER CODE END SysInit */
 
-    /* Initialize all configured peripherals */
-    MX_GPIO_Init();
-    MX_DMA_Init();
-    MX_SPI3_Init();
-    MX_USART1_UART_Init();
-    MX_USART2_UART_Init();
-    MX_USART6_UART_Init();
-    /* USER CODE BEGIN 2 */
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_SPI3_Init();
+  MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
+  MX_USART6_UART_Init();
+  /* USER CODE BEGIN 2 */
 
-    mem_spi.Init(&hspi3, 0, ChipSelect, WriteProtect, Hold, false);
+    mem_spi.Init(&hspi3, SPI_FLASH_CONFIG_ADDRESS, ChipSelect, WriteProtect, Hold, false);
     // HAL_Delay(100);
     mem_spi.Read(&settings);
 
@@ -233,87 +235,75 @@ int main(void)
         NameCH[var].Channel_number = 0xff;
     }
 
-    // linking the channel name with the device and channel number
-    /* после поиска
-    for (int var = 0; var <= MAX_ADR_DEV; ++var) {
-        // check device address
-        if ((devices[var].Addr >= START_ADR_I2C) && (devices[var].Addr <= (START_ADR_I2C + MAX_ADR_DEV))) {
-            for (int i = 0; i < 3; ++i) {
-                NameCH[devices[var].ch[i].Name_ch].dev = &devices[var];
-                NameCH[devices[var].ch[i].Name_ch].Channel_number = i;
-            }
-        }
-    }
-    */
-
     mem_spi.SetUsedInOS(true); // switch to use in OS
-    /* USER CODE END 2 */
+  /* USER CODE END 2 */
 
-    /* Call init function for freertos objects (in cmsis_os2.c) */
-    MX_FREERTOS_Init();
+  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
 
-    /* Start scheduler */
-    osKernelStart();
+  /* Start scheduler */
+  osKernelStart();
 
-    /* We should never get here as control is now taken by the scheduler */
+  /* We should never get here as control is now taken by the scheduler */
 
-    /* Infinite loop */
-    /* USER CODE BEGIN WHILE */
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
     while (1)
     {
-        /* USER CODE END WHILE */
+    /* USER CODE END WHILE */
 
-        /* USER CODE BEGIN 3 */
+    /* USER CODE BEGIN 3 */
     }
-    /* USER CODE END 3 */
+  /* USER CODE END 3 */
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-    /** Configure the main internal regulator output voltage
-     */
-    __HAL_RCC_PWR_CLK_ENABLE();
-    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-    /** Initializes the RCC Oscillators according to the specified parameters
-     * in the RCC_OscInitTypeDef structure.
-     */
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM = 6;
-    RCC_OscInitStruct.PLL.PLLN = 160;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-    RCC_OscInitStruct.PLL.PLLQ = 4;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    {
-        Error_Handler();
-    }
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 6;
+  RCC_OscInitStruct.PLL.PLLN = 160;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-    /** Initializes the CPU, AHB and APB buses clocks
-     */
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
-    {
-        Error_Handler();
-    }
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-    /** Enables the Clock Security System
-     */
-    HAL_RCC_EnableCSS();
+  /** Enables the Clock Security System
+  */
+  HAL_RCC_EnableCSS();
 }
 
 /* USER CODE BEGIN 4 */
@@ -636,134 +626,6 @@ void timoutBlink()
     }
 }
 
-/*
- * функция установки нового устройства
- * Addr - I2C адрес
- * CH	- один из трех канвлов
- * Name	- глобальное имя от 1 до 45
- */
-/*
-int set_i2c_dev(uint8_t Addr, uint8_t CH, uint8_t Name) {
-    uint8_t ret = 0, dev = (Addr - START_ADR_I2C);
-
-    // проверка входных данных
-    if (CH > 2) {
-        return 1;
-    }
-    if ((Name > MAX_CH_NAME)) {
-        return 2;
-    }
-    //если вышли за диапазон
-    if ((Addr < START_ADR_I2C) || (Addr > (START_ADR_I2C + MAX_ADR_DEV))) {
-        return 3;
-    }
-
-    //mem_spi.W25qxx_EraseSector(0);
-    NameCH[Name].dev = &settings.devices[dev];
-    NameCH[Name].Channel_number = CH;
-
-    // записываем данные в память и сохраняем на флешку
-    settings.devices[dev].Addr = Addr;
-    settings.devices[dev].AddrFromDev = 0;
-    settings.devices[dev].ch[CH].Name_ch = Name;
-    settings.devices[dev].ERR_counter = 0;
-    settings.devices[dev].last_ERR = 0;
-    settings.devices[dev].TypePCB = PCBType::NoInit;
-
-    settings.devices[dev].ch[CH].Current = 0;
-    settings.devices[dev].ch[CH].IsOn = 0;
-    settings.devices[dev].ch[CH].On_off = 0;
-    settings.devices[dev].ch[CH].PWM = 0;
-    settings.devices[dev].ch[CH].PWM_out = 0;
-    //mem_spi.Write(settings);
-
-    return ret;
-}*/
-
-/*
- * функция удаления устройства
- * Addr - I2C адрес
- * CH	- один из трех канвлов
- * Name	- глобальное имя от 1 до 45
- */
-/*
-int del_Name_dev(uint8_t Name) {
-    uint8_t ret = 0;
-
-    if ((Name > 44)) {
-        return -2;
-    }
-
-    //mem_spi.W25qxx_EraseSector(0);
-    // записываем данные в память и сохраняем на флешку
-    //NameCH[Name].dev = &settings.devices[dev];
-    uint8_t CH = NameCH[Name].Channel_number;
-
-    // записываем данные в память и сохраняем на флешку
-    NameCH[Name].dev->Addr = 0xff;
-    NameCH[Name].dev->AddrFromDev = 0xff;
-    NameCH[Name].dev->ch[CH].Name_ch = 0xff;
-    NameCH[Name].dev->ERR_counter = 0xffffffff;
-    NameCH[Name].dev->last_ERR = 0xffffffff;
-    NameCH[Name].dev->TypePCB = PCBType::NoInit;
-
-    NameCH[Name].dev->ch[CH].Current = 0xffff;
-    NameCH[Name].dev->ch[CH].IsOn = 0xff;
-    NameCH[Name].dev->ch[CH].On_off = 0xff;
-    NameCH[Name].dev->ch[CH].PWM = 0xffffffff;
-    NameCH[Name].dev->ch[CH].PWM_out = 0xffffffff;
-
-    NameCH[Name].dev = NULL;
-    NameCH[Name].Channel_number = 0xff;
-    //mem_spi.Write(settings);
-
-    return ret;
-}*/
-/*
-void setRange_i2c_dev(uint8_t startAddres, uint8_t quantity) {
-    // Clear all
-    cleanAll_i2c_dev();
-
-    uint8_t name_num = 0;
-    for (int var = 0; var < quantity; ++var) {
-        for (int ch = 0; ch < 3; ++ch) {
-            set_i2c_dev(startAddres + var, ch, name_num);
-            ++name_num;
-            settings.devices_depth++;
-        }
-    }
-}
-
-void cleanAll_i2c_dev() {
-    // Clear all
-    for (int var = 0; var <= MAX_CH_NAME; ++var) {
-        del_Name_dev(var);
-    }
-    del_all_dev();
-}
-
-void del_all_dev() {
-    for (int var = 0; var < MAX_ADR_DEV; ++var) {
-
-        settings.devices[var].Addr = 0xff;
-        settings.devices[var].AddrFromDev = 0xff;
-        settings.devices[var].ERR_counter = 0xffffffff;
-        settings.devices[var].last_ERR = 0xffffffff;
-        settings.devices[var].TypePCB = PCBType::NoInit;
-
-        for (int CH = 0; CH < 3; ++CH) {
-            settings.devices[var].ch[CH].Current = 0xffff;
-            settings.devices[var].ch[CH].IsOn = 0xff;
-            settings.devices[var].ch[CH].On_off = 0xff;
-            settings.devices[var].ch[CH].PWM = 0xffffffff;
-            settings.devices[var].ch[CH].PWM_out = 0xffffffff;
-            settings.devices[var].ch[CH].Name_ch = 0xff;
-        }
-
-    }
-    settings.devices_depth = 0;
-}*/
-
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
 
@@ -900,56 +762,55 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 /* USER CODE END 4 */
 
 /**
- * @brief  Period elapsed callback in non blocking mode
- * @note   This function is called  when TIM7 interrupt took place, inside
- * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
- * a global variable "uwTick" used as application time base.
- * @param  htim : TIM handle
- * @retval None
- */
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM7 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-    /* USER CODE BEGIN Callback 0 */
+  /* USER CODE BEGIN Callback 0 */
 
-    /* USER CODE END Callback 0 */
-    if (htim->Instance == TIM7)
-    {
-        HAL_IncTick();
-    }
-    /* USER CODE BEGIN Callback 1 */
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM7) {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
 
-    /* USER CODE END Callback 1 */
+  /* USER CODE END Callback 1 */
 }
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
-    /* USER CODE BEGIN Error_Handler_Debug */
+  /* USER CODE BEGIN Error_Handler_Debug */
     /* User can add his own implementation to report the HAL error return state */
     STM_LOG("Error handler");
     __disable_irq();
     while (1)
     {
     }
-    /* USER CODE END Error_Handler_Debug */
+  /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-    /* USER CODE BEGIN 6 */
+  /* USER CODE BEGIN 6 */
     /* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-    /* USER CODE END 6 */
+  /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
