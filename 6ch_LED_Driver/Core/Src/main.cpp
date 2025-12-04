@@ -63,6 +63,8 @@ const meta_t firmware_metadata = {
 /* USER CODE BEGIN PV */
 uint8_t ucHeap[configTOTAL_HEAP_SIZE] __attribute__((section(".ccmram"))) = {0};
 
+uint32_t count_tic = 0; // для замеров времени выполнения кода
+
 led_t LED_IPadr;
 led_t LED_error;
 led_t LED_OSstart;
@@ -161,6 +163,8 @@ int main(void)
   // Работаем с настройками из флешки
   if ((settings.version == 0) | (settings.version == 0xFF) | resetSettings)
   {
+      STM_LOG("Reset settings");
+
       settings.isON_from_settings = false;
       settings.IP_end_from_settings = 1;
       settings.DHCPset = true;
@@ -188,7 +192,7 @@ int main(void)
       settings.MAC[4] = 0x44;
       settings.MAC[5] = endMAC;
 
-      settings.version = FIRMWARE_VERSION;
+      settings.version = CURENT_VERSION;
 
       mem_spi.Write(settings);
       mem_spi.Read(&settings);

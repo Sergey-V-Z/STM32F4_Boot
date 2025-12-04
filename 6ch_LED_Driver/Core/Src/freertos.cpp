@@ -187,7 +187,7 @@ void MX_FREERTOS_Init(void) {
 
 }
 
-/* USER CODE BEGIN Header_mainTask */
+/* USER CODE BEGIN mainTask */
 /**
   * @brief  Function implementing the MainTask thread.
   * @param  argument: Not used
@@ -199,7 +199,28 @@ void mainTask(void const * argument)
   /* init code for LWIP */
   MX_LWIP_Init();
   /* USER CODE BEGIN mainTask */
-  
+
+  // Инициализируем логгер
+  Logger_Init(&huart6);
+
+  STM_LOG("Start %s app. Ver %d", FIRMWARE_NAME, FIRMWARE_VERSION);
+
+  /* Инициализируем модуль обновления прошивки */
+  FirmwareUpdate_Init(&mem_spi);
+
+  /* Инициализируем TCP-сервер обновления прошивки */
+  FirmwareUpdateServer_Init();
+
+  /* Запускаем TCP-сервер (он будет работать всегда) */
+  FirmwareUpdateServer_Start();
+
+  STM_LOG("Firmware updater ready");
+
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(100);
+  }
   /* USER CODE END mainTask */
 }
 
@@ -213,7 +234,29 @@ void mainTask(void const * argument)
 void led(void const * argument)
 {
   /* USER CODE BEGIN led */
-  
+  // Инициализация RGB LED индикаторов
+  HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(B_GPIO_Port, B_Pin, GPIO_PIN_SET);
+
+  LED_IPadr.Init(G_GPIO_Port, G_Pin);
+  LED_error.Init(R_GPIO_Port, R_Pin);
+  LED_OSstart.Init(B_GPIO_Port, B_Pin);
+
+  LED_IPadr.setParameters(mode::ON_OFF);
+  LED_error.setParameters(mode::ON_OFF);
+  LED_OSstart.setParameters(mode::BLINK, 2000, 100);
+  LED_OSstart.LEDon();
+
+  /* Infinite loop */
+  for(;;)
+  {
+    LED_IPadr.poll();
+    LED_error.poll();
+    LED_OSstart.poll();
+
+    osDelay(1);
+  }
   /* USER CODE END led */
 }
 
@@ -227,10 +270,21 @@ void led(void const * argument)
 void eth_Task(void const * argument)
 {
   /* USER CODE BEGIN eth_Task */
+  extern struct netif gnetif;
+
+  // Ждем получение адреса
+  while(gnetif.ip_addr.addr == 0) { osDelay(1); }
+  
+  LED_IPadr.LEDon();
+  osDelay(1000);
+  LED_IPadr.LEDoff();
+
+  STM_LOG("IP address: %s", ip4addr_ntoa(&gnetif.ip_addr));
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+    osDelay(100);
   }
   /* USER CODE END eth_Task */
 }
@@ -294,11 +348,6 @@ void uart_Task(void const * argument)
 * @brief Function implementing the loggerTask thread.
 * @param argument: Not used
 * @retval None
-/* USER CODE BEGIN Header_LoggerTask */
-/**
-* @brief Function implementing the loggerTask thread.
-* @param argument: Not used
-* @retval None
 */
 /* USER CODE END Header_LoggerTask */
 void LoggerTask(void const * argument)
@@ -307,7 +356,8 @@ void LoggerTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-	  osDelay(1);
+    Logger_Process();
+    osDelay(1);
   }
   /* USER CODE END LoggerTask */
 }

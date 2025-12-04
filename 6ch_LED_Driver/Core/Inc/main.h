@@ -33,9 +33,20 @@ extern "C" {
 /* USER CODE BEGIN Includes */
 #include <stdarg.h>
 #include <string.h>
+#include <stdbool.h>
 #include "stdio.h"
 #include "FreeRTOS.h"
 #include "cmsis_os.h"
+
+// Forward declarations для избежания циклических зависимостей
+#ifdef __cplusplus
+class led_t;
+class flash;
+#else
+typedef struct led_t led_t;
+typedef struct flash flash;
+#endif
+
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -45,6 +56,9 @@ extern "C" {
 #define FIRMWARE_VERSION    0x00000001 // Версия
 #define FIRMWARE_NAME       "6ch_LED_Driver"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
+
+// Константы
+#define MAX_CELLS 6
 
 // Структура метаданных
 typedef struct {
@@ -108,15 +122,147 @@ typedef struct {
     uint32_t queueLength;
 } LoggerStats_t;
 
+// Типы команд для обмена данными
+typedef enum cmd_t
+{
+	data = 0,
+	firmware_data,
+	status,
+	metadata_current,
+	boot_data,
+	fin_write,
+  	prepare_write,
+  	enter_boot_mode,
+} cmd_t;
+
+// Статусы прошивки
+typedef enum {
+    FIRMWARE_STATUS_READY = 0x52454144,
+    FIRMWARE_STATUS_IDLE = 0x49444C45,
+    FIRMWARE_STATUS_ERASING = 0x45524153,
+    FIRMWARE_STATUS_ERASED = 0x45525344,
+    FIRMWARE_STATUS_WRITING = 0x57524954,
+    FIRMWARE_STATUS_WRITTEN = 0x57525444,
+    FIRMWARE_STATUS_VERIFYING = 0x56455246,
+    FIRMWARE_STATUS_VERIFIED = 0x56524644,
+    FIRMWARE_STATUS_ERROR = 0x4552524F
+} s_status_flash_t;
+
+// Типы печатных плат
+typedef enum {
+	NoInit = 0,
+	LED_DRV = 10,
+    LED_DRV_v2 = 11,
+	PCB_PWR = 20,
+	MOSFET_6CH = 30,
+} PCBType;
+
+// Структура для передачи данных прошивки
+typedef struct {
+	uint32_t firmwareSize;
+	uint32_t firmwareCRC;
+	uint32_t firmwareVersion;
+	uint32_t type_pcb;
+	uint32_t reserved1;
+	uint32_t reserved2;
+	uint32_t reserved3;
+  	uint8_t name_proj[140];
+} Firmware_data_t;
+
+// Режимы работы
+typedef enum {
+	MODE_NON = 0x00000000,
+	MODE_BOOTLOADER = 0x00000001,
+	MODE_APP = 0x00000002
+} secondary_mode_t;
+
+// Структура состояния ячейки с прошивкой
+typedef struct {
+	uint32_t cell_address;
+	uint32_t fw_size;
+	uint32_t fw_crc;
+	meta_t metadata;
+	uint32_t load_permission;
+} FirmwareUpdateCellState;
+
+typedef struct
+{
+	FirmwareUpdateCellState cells[MAX_CELLS];
+	uint32_t active_cell;
+	uint32_t crc;
+} SecondaryFirmwareConfig;
+
+// Структуры для управления PWM каналами
+#pragma pack(push, 1)
+typedef struct{
+	uint8_t en1;
+	uint8_t en2;
+	uint8_t	en3;
+	uint8_t	en4;
+	uint8_t	en5;
+	uint8_t	en6;
+
+	uint32_t PWM1;
+	uint32_t PWM2;
+	uint32_t PWM3;
+	uint32_t PWM4;
+	uint32_t PWM5;
+	uint32_t PWM6;
+} pwm_ch_t;
+#pragma pack(pop)
+
+#pragma pack(push, 1)
+typedef struct {
+	uint8_t en1;
+	uint8_t en2;
+	uint8_t	en3;
+	uint8_t	en4;
+	uint8_t	en5;
+	uint8_t	en6;
+
+	uint16_t ADC_CH1;
+	uint16_t ADC_CH2;
+	uint16_t ADC_CH3;
+	uint16_t ADC_CH4;
+	uint16_t ADC_CH5;
+	uint16_t ADC_CH6;
+	uint16_t ADC_Termo;
+
+	uint32_t PWM1;
+	uint32_t PWM2;
+	uint32_t PWM3;
+	uint32_t PWM4;
+	uint32_t PWM5;
+	uint32_t PWM6;
+} ret_pwm_ch_t;
+#pragma pack(pop)
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
 
+extern UART_HandleTypeDef huart6;
+extern DMA_HandleTypeDef hdma_usart6_rx;
+extern DMA_HandleTypeDef hdma_usart6_tx;
+extern SPI_HandleTypeDef hspi3;
+
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
+
+#define CURENT_VERSION 1
+#define ID_CTRL 1
+#define NAME "6ch LED Driver"
+#define LWIP_DHCP 1
+
+#define DBG_PORT huart6
+#define DBG_PORT_NAME USART6
+
+#define LOG_ERR "Err: "
+#define LOG_WARN "Warn: "
+#define LOG_OK "OK"
 
 /* USER CODE END EM */
 
@@ -163,6 +309,19 @@ void Logger_GetStats(LoggerStats_t* stats);
 #define DE_M_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
+
+// Глобальные переменные
+extern uint32_t count_tic;
+
+// LED индикаторы
+extern led_t LED_IPadr;
+extern led_t LED_error;
+extern led_t LED_OSstart;
+
+// SPI Flash
+extern flash mem_spi;
+extern settings_t settings;
+extern bool resetSettings;
 
 // Глобальный экземпляр логгера
 extern UartLogger_t logger;
