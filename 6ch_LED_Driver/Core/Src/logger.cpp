@@ -43,13 +43,13 @@ int getFreeSlotAtomic(void) {
     return -1;
 }
 
-// Инициализация логгера
+// Инициализация логгера (без изменений, но добавляем инициализацию нового поля)
 void Logger_Init(UART_HandleTypeDef* huart) {
     logger.huart = huart;
     logger.isTransmitting = 0;
     logger.txBuffer = txBuffer;
     logger.started = 1;
-    logger.currentMsgIndex = 0xFF;  // невалидный индекс
+    logger.currentMsgIndex = 0xFF;  // ← ДОБАВЛЕНО: невалидный индекс
 
     memset(messagePoolUsed, 0, sizeof(messagePoolUsed));
 
@@ -60,20 +60,21 @@ void Logger_Init(UART_HandleTypeDef* huart) {
     logger.messageQueue = osMessageCreate(osMessageQ(logQueue), NULL);
 }
 
-// Обработка сообщений логгера
+// ✅ ИСПРАВЛЕННАЯ функция обработки сообщений
 void Logger_Process(void) {
     if (!logger.isTransmitting) {
         osEvent event = osMessageGet(logger.messageQueue, 0);
 
         if (event.status == osEventMessage) {
             uint32_t msgIndex = event.value.v;
-            if(msgIndex < QUEUE_SIZE && messagePoolUsed[msgIndex] == 1) {
+            if(msgIndex < QUEUE_SIZE && messagePoolUsed[msgIndex] == 1) {  // ← ДОБАВЛЕНА проверка статуса
                 LogMessage_t* msg = &messagePool[msgIndex];
 
                 if(msg->length > 0 && msg->length < MAX_MESSAGE_SIZE) {
                     // Копируем сообщение в буфер отправки
                     memcpy(logger.txBuffer, msg->data, msg->length);
 
+                    // ✅ ИСПРАВЛЕНО: НЕ освобождаем слот здесь!
                     // Сохраняем индекс для освобождения после завершения передачи
                     logger.currentMsgIndex = msgIndex;
 
@@ -88,32 +89,35 @@ void Logger_Process(void) {
                     }
 
                     if(status != HAL_OK) {
-                        // Если DMA не запустился - освобождаем слот и используем блокирующую передачу
+                        // ✅ ИСПРАВЛЕНО: Если DMA не запустился - освобождаем слот и используем блокирующую передачу
                         HAL_UART_Transmit(logger.huart, (uint8_t*)logger.txBuffer, msg->length, 100);
-                        freeSlotAtomic(msgIndex);
+                        freeSlotAtomic(msgIndex);  // Освобождаем слот
                         logger.isTransmitting = 0;
                         logger.currentMsgIndex = 0xFF;
                     }
                 } else {
-                    // Некорректный размер сообщения - освобождаем слот
+                    // ✅ ИСПРАВЛЕНО: Некорректный размер сообщения - освобождаем слот
                     freeSlotAtomic(msgIndex);
                 }
+            } else {
+                // ✅ ДОБАВЛЕНО: Некорректный индекс или уже освобожденный слот - игнорируем
+                // Это может произойти при race condition или двойной обработке
             }
         }
     }
 }
 
-// Callback завершения передачи
+// ✅ ИСПРАВЛЕННЫЙ callback завершения передачи
 void Logger_TxCpltCallback(void) {
-    // Освобождаем слот только после завершения передачи
+    // ✅ ИСПРАВЛЕНО: Освобождаем слот только после завершения передачи
     if(logger.currentMsgIndex < QUEUE_SIZE) {
         freeSlotAtomic(logger.currentMsgIndex);
-        logger.currentMsgIndex = 0xFF;
+        logger.currentMsgIndex = 0xFF;  // Сбрасываем в невалидное значение
     }
     logger.isTransmitting = 0;
 }
 
-// Функция логирования
+// ✅ ИСПРАВЛЕННАЯ функция логирования
 void Logger_Log(const char* format, ...) {
     if(!logger.started || !format) return;
 
@@ -124,7 +128,7 @@ void Logger_Log(const char* format, ...) {
         slot = getFreeSlotAtomic();
     } else {
         // В обычном коде используем мьютекс
-        if(osMutexWait(poolMutexHandle, 10) == osOK) {
+        if(osMutexWait(poolMutexHandle, 10) == osOK) {  // ← ДОБАВЛЕН таймаут
             slot = getFreeMessageSlot();
             osMutexRelease(poolMutexHandle);
         }
@@ -153,12 +157,12 @@ void Logger_Log(const char* format, ...) {
     // Помещаем индекс сообщения в очередь
     osStatus status = osMessagePut(logger.messageQueue, slot, 10);
     if(status != osOK) {
-        // При ошибке очереди освобождаем слот
+        // ✅ ИСПРАВЛЕНО: При ошибке очереди освобождаем слот
         freeSlotAtomic(slot);
     }
 }
 
-// Функция логирования без завершающих символов
+// ✅ ИСПРАВЛЕННАЯ функция логирования без завершающих символов
 void Logger_Log_xx(const char* format, ...) {
     if(!logger.started || !format) return;
 
@@ -195,7 +199,7 @@ void Logger_Log_xx(const char* format, ...) {
     }
 }
 
-// Функция для безопасной остановки логгера
+// ✅ ДОБАВЛЕНА функция для безопасной остановки логгера
 void Logger_Stop(void) {
     logger.started = 0;
 
@@ -214,7 +218,7 @@ void Logger_Stop(void) {
     } while(evt.status == osEventMessage);
 }
 
-// Функция получения статистики
+// ✅ ДОБАВЛЕНА функция получения статистики
 void Logger_GetStats(LoggerStats_t* stats) {
     if(!stats) return;
 
@@ -235,5 +239,7 @@ void Logger_GetStats(LoggerStats_t* stats) {
     }
 
     stats->freeSlots = stats->totalSlots - stats->usedSlots;
+
+    // Примерная длина очереди (может быть неточной из-за race conditions)
     stats->queueLength = stats->usedSlots;
 }

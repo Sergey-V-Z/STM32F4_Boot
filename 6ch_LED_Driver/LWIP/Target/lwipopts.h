@@ -117,7 +117,9 @@
 #define CHECKSUM_CHECK_ICMP6 0
 /*-----------------------------------------------------------------------------*/
 /* USER CODE BEGIN 1 */
-
+/*----- Enable SO_RCVTIMEO and SO_SNDTIMEO for netconn API -----*/
+#define LWIP_SO_RCVTIMEO 1
+#define LWIP_SO_SNDTIMEO 1
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

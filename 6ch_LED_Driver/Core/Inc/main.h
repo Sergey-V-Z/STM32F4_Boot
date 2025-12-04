@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 STMicroelectronics.
+  * Copyright (c) 2022 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -31,68 +31,245 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "cJSON.h"
 #include <stdarg.h>
 #include <string.h>
-#include <stdbool.h>
 #include "stdio.h"
 #include "FreeRTOS.h"
 #include "cmsis_os.h"
-
-// Forward declarations для избежания циклических зависимостей
-#ifdef __cplusplus
-class led_t;
-class flash;
-#else
-typedef struct led_t led_t;
-typedef struct flash flash;
-#endif
-
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000001 // Версия
-#define FIRMWARE_NAME       "6ch_LED_Driver"  // Название устройства
+#define FIRMWARE_VERSION    0x00000006 // Версия
+#define FIRMWARE_NAME       "Control PWR"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
-
-// Константы
-#define MAX_CELLS 6
 
 // Структура метаданных
 typedef struct {
     uint32_t key_start;       // Магическое число (0xDEADBEEF)
     uint32_t version;         // Версия прошивки
-    char name_proj[140];      // Название проекта или устройства
+    char name_proj[140];   // Название проекта или устройства
     uint32_t reserved;        // Зарезервировано для будущего использования
 } meta_t;
 
 // Объявление переменной метаданных
 extern const meta_t firmware_metadata;
 
-// Структура для IP настроек
+/* USER CODE END ET */
+
+/* Exported constants --------------------------------------------------------*/
+/* USER CODE BEGIN EC */
+
+extern UART_HandleTypeDef huart6;
+extern DMA_HandleTypeDef hdma_usart6_rx;
+extern DMA_HandleTypeDef hdma_usart6_tx;
+extern SPI_HandleTypeDef hspi3;
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim4;
+/* USER CODE END EC */
+
+/* Exported macro ------------------------------------------------------------*/
+/* USER CODE BEGIN EM */
+
+#define ARRAY_LEN(x)            (sizeof(x) / sizeof((x)[0]))
+
+#define DBG_PORT huart6
+#define DBG_PORT_NAME USART6
+
+#define CURENT_VERSION 46
+#define ID_CTRL 1
+#define NAME "pwr controller"
+#define LWIP_DHCP 1
+
+#define UART6_RX_LENGTH 512
+#define message_RX_LENGTH 512
+
+#define LOG_ERR "Err: "      // Вместо "Error: "
+#define LOG_WARN "Warn: "    // Вместо "Warning: "
+#define LOG_OK "OK"          // Вместо "Success" или "OK: "
+// NVS key
+
+/*
+// Команды API для работы с точками (добавить в enum)
+#define CMD_SAVE_POINT     20  // Сохранить текущую позицию как точку
+#define CMD_GET_POSITION   21  // Получить текущую позицию в шагах
+#define CMD_GOTO_SW0   		22  // Установить текущую позицию
+#define CMD_GOTO_SW1   		23  // Установить текущую позицию
+#define CMD_GOTO_POINT     24  // Перейти на точку
+#define CMD_GET_POINT     25  // Получить позицию в шагах из точки
+#define CMD_GOTO_POSITION   27  // Перейти на позицию в шагах
+#define CMD_GET_MAX_POSITION 28 // Получить максимальную позицию
+#define CMD_GET_MIN_POSITION 29 // Получить минимальную позицию
+#define CMD_SET_POINT 30 // Получить минимальную позицию
+
+#define MAX_POINTS			10
+*/
+
+// Структура ответа на запрос позиции
+struct position_response_t {
+    uint32_t current_steps;    // Текущая позиция в шагах
+    uint32_t current_point;    // Номер текущей точки
+    uint8_t is_calibrated;        // Статус калибровки
+};
+
+// Структура для работы с точками
+struct points_response_t {
+    uint32_t points[10];       // Массив точек
+    uint32_t count;            // Количество точек
+};
+/* USER CODE END EM */
+
+/* Exported functions prototypes ---------------------------------------------*/
+void Error_Handler(void);
+
+/* USER CODE BEGIN EFP */
+int set_i2c_dev(uint8_t Addr, uint8_t CH, uint8_t Name);
+int del_Name_dev(uint8_t Name);
+void del_all_dev();
+void setRange_i2c_dev(uint8_t startAddres, uint8_t quantity);
+void cleanAll_i2c_dev();
+uint8_t ReadStraps();
+void finishedBlink();
+void timoutBlink();
+
+uint16_t usMBCRC16(uint8_t *pucFrame, uint16_t usLen);
+
+//void STM_LOG(const char* format, ...);
+/* USER CODE END EFP */
+
+/* Private defines -----------------------------------------------------------*/
+#define MAC_IP_Pin_Pin GPIO_PIN_2
+#define MAC_IP_Pin_GPIO_Port GPIOE
+#define R_Pin GPIO_PIN_13
+#define R_GPIO_Port GPIOC
+#define G_Pin GPIO_PIN_14
+#define G_GPIO_Port GPIOC
+#define B_Pin GPIO_PIN_15
+#define B_GPIO_Port GPIOC
+#define eth_NRST_Pin GPIO_PIN_0
+#define eth_NRST_GPIO_Port GPIOA
+#define MAC_b0_Pin GPIO_PIN_8
+#define MAC_b0_GPIO_Port GPIOD
+#define MAC_b1_Pin GPIO_PIN_9
+#define MAC_b1_GPIO_Port GPIOD
+#define MAC_b2_Pin GPIO_PIN_10
+#define MAC_b2_GPIO_Port GPIOD
+#define MAC_b3_Pin GPIO_PIN_11
+#define MAC_b3_GPIO_Port GPIOD
+#define MAC_b4_Pin GPIO_PIN_12
+#define MAC_b4_GPIO_Port GPIOD
+#define MAC_b5_Pin GPIO_PIN_13
+#define MAC_b5_GPIO_Port GPIOD
+#define MAC_b6_Pin GPIO_PIN_14
+#define MAC_b6_GPIO_Port GPIOD
+#define MAC_b7_Pin GPIO_PIN_15
+#define MAC_b7_GPIO_Port GPIOD
+#define SPI3_CS_Pin GPIO_PIN_15
+#define SPI3_CS_GPIO_Port GPIOA
+#define WP_Pin GPIO_PIN_0
+#define WP_GPIO_Port GPIOD
+#define HOLD_Pin GPIO_PIN_1
+#define HOLD_GPIO_Port GPIOD
+#define DE_M_Pin GPIO_PIN_4
+#define DE_M_GPIO_Port GPIOD
+
+/* USER CODE BEGIN Private defines */
+
+#define MAX_CELLS 6
+
+typedef enum cmd_t
+{
+	data = 0,
+	firmware_data,
+	status,
+	metadata_current,
+	boot_data,
+	fin_write,
+  	prepare_write,
+  	enter_boot_mode,
+} cmd_t;
+
+/*
+typedef enum {
+	BOOTLOADER_STATE_INIT, // Инициализация загрузчика
+	BOOTLOADER_STATE_LOAD, // загрузка прошивки через UART
+	BOOTLOADER_STATE_ERROR, // ошибка загрузки
+	BOOTLOADER_STATE_JMP_APP // можно переходить в приложение.
+} s_Bootloader_State_t;
+
+
+typedef struct __attribute__((packed, aligned(4))){
+	struct s_Bootloader_Status_t {
+		s_Bootloader_State_t State; // Current state of bootloader
+		uint32_t ErrorCode; // Error code if any
+		uint8_t IsAppValid; // Is the application valid
+		uint8_t reserved; 
+		uint32_t LastFlashAddress; // Last address flashed
+		uint32_t BytesFlashed; // Number of bytes flashed
+	} status;
+
+	meta_t metadata;
+
+	uint32_t flashInitialized;
+	uint32_t reset_counter;
+	uint32_t structCRC; // CRC of this structure (except structCRC field)
+
+} s_boot_data_t;
+*/
+
+typedef enum {
+    FIRMWARE_STATUS_READY = 0x52454144, // Подтверждение выполнения команды (READ) 
+    FIRMWARE_STATUS_IDLE = 0x49444C45, // Ожидание начала прошивки (IDLE)
+    FIRMWARE_STATUS_ERASING = 0x45524153, // очистка флешки (ERAS)
+    FIRMWARE_STATUS_ERASED = 0x45525344,   // очистка флешки закончена (ERSD)
+    FIRMWARE_STATUS_WRITING = 0x57524954,  // запись во флешку (WRIT)
+    FIRMWARE_STATUS_WRITTEN = 0x57525444,  // запись во флешку закончена (WRTD)
+    FIRMWARE_STATUS_VERIFYING = 0x56455246, // завершение , проверка прошивки (VERF)
+    FIRMWARE_STATUS_VERIFIED = 0x56524644, // проверка прошивки прошла успешно (VRFD)
+    FIRMWARE_STATUS_ERROR = 0x4552524F // ошибка (ERRO)
+} s_status_flash_t;
+
+// структура получаемых данных от основного контроллера
+typedef struct {
+	uint32_t firmwareSize;// размера прошивки
+	uint32_t firmwareCRC;// CRC прошивки
+	uint32_t firmwareVersion;// версия прошивки
+	uint32_t type_pcb; // тип платы
+	 uint32_t reserved1; // зарезервировано для будущего использования
+	uint32_t reserved2; // зарезервировано для будущего использования
+	uint32_t reserved3; // зарезервировано для будущего использования
+  	uint8_t name_proj[140]; // название проекта или устройства
+} Firmware_data_t;
+
 typedef struct
 {
-	uint8_t 	ip[4];        // IP адрес
-	uint8_t		mask[4];      // Маска сети
-	uint8_t 	gateway[4];   // Шлюз
-} setIP_t;
+	uint8_t 	ip[4];// = {192, 168, 0, 2};
+	uint8_t		mask[4];//  = {255, 255, 255, 0};
+	uint8_t 	gateway[4];// = {192, 168, 0, 1};
+}setIP_t;
 
-// Структура настроек устройства
 #pragma pack(push, 1)
 typedef struct
 {
-	uint8_t devices_depth;            // Глубина иерархии устройств (не используется)
-	uint8_t	MAC[6];                   // MAC адрес
-	uint8_t isON_from_settings;       // Включено из настроек
-	uint8_t IP_end_from_settings;     // Последний октет IP из настроек
-	setIP_t	saveIP;                   // Сохраненные IP настройки
-	uint8_t DHCPset;                  // Включен DHCP
-	uint8_t version;                  // Версия настроек
-	uint32_t reserved[8];             // Зарезервировано (вместо bridge_sett)
-} settings_t;
+	uint8_t devices_depth;
+	uint8_t	MAC[6];
+	uint8_t isON_from_settings;
+	uint8_t IP_end_from_settings;
+	setIP_t	saveIP;
+	uint8_t DHCPset;
+	uint8_t version;
+}settings_t;
 #pragma pack(pop)
+
+// Структура для передачи параметров обновления прошивки
+typedef struct {
+    uint32_t fw_size;         // Размер прошивки
+    uint32_t fw_crc;          // CRC прошивки
+    uint32_t cell_num;        // номер ячейки
+    uint32_t reserved;        // Зарезервировано
+} FWUpdateParams;
 
 // Максимальный размер сообщения
 #define MAX_MESSAGE_SIZE 1536
@@ -122,154 +299,6 @@ typedef struct {
     uint32_t queueLength;
 } LoggerStats_t;
 
-// Типы команд для обмена данными
-typedef enum cmd_t
-{
-	data = 0,
-	firmware_data,
-	status,
-	metadata_current,
-	boot_data,
-	fin_write,
-  	prepare_write,
-  	enter_boot_mode,
-} cmd_t;
-
-// Статусы прошивки
-typedef enum {
-    FIRMWARE_STATUS_READY = 0x52454144,
-    FIRMWARE_STATUS_IDLE = 0x49444C45,
-    FIRMWARE_STATUS_ERASING = 0x45524153,
-    FIRMWARE_STATUS_ERASED = 0x45525344,
-    FIRMWARE_STATUS_WRITING = 0x57524954,
-    FIRMWARE_STATUS_WRITTEN = 0x57525444,
-    FIRMWARE_STATUS_VERIFYING = 0x56455246,
-    FIRMWARE_STATUS_VERIFIED = 0x56524644,
-    FIRMWARE_STATUS_ERROR = 0x4552524F
-} s_status_flash_t;
-
-// Типы печатных плат
-typedef enum {
-	NoInit = 0,
-	LED_DRV = 10,
-    LED_DRV_v2 = 11,
-	PCB_PWR = 20,
-	MOSFET_6CH = 30,
-} PCBType;
-
-// Структура для передачи данных прошивки
-typedef struct {
-	uint32_t firmwareSize;
-	uint32_t firmwareCRC;
-	uint32_t firmwareVersion;
-	uint32_t type_pcb;
-	uint32_t reserved1;
-	uint32_t reserved2;
-	uint32_t reserved3;
-  	uint8_t name_proj[140];
-} Firmware_data_t;
-
-// Режимы работы
-typedef enum {
-	MODE_NON = 0x00000000,
-	MODE_BOOTLOADER = 0x00000001,
-	MODE_APP = 0x00000002
-} secondary_mode_t;
-
-// Структура состояния ячейки с прошивкой
-typedef struct {
-	uint32_t cell_address;
-	uint32_t fw_size;
-	uint32_t fw_crc;
-	meta_t metadata;
-	uint32_t load_permission;
-} FirmwareUpdateCellState;
-
-typedef struct
-{
-	FirmwareUpdateCellState cells[MAX_CELLS];
-	uint32_t active_cell;
-	uint32_t crc;
-} SecondaryFirmwareConfig;
-
-// Структуры для управления PWM каналами
-#pragma pack(push, 1)
-typedef struct{
-	uint8_t en1;
-	uint8_t en2;
-	uint8_t	en3;
-	uint8_t	en4;
-	uint8_t	en5;
-	uint8_t	en6;
-
-	uint32_t PWM1;
-	uint32_t PWM2;
-	uint32_t PWM3;
-	uint32_t PWM4;
-	uint32_t PWM5;
-	uint32_t PWM6;
-} pwm_ch_t;
-#pragma pack(pop)
-
-#pragma pack(push, 1)
-typedef struct {
-	uint8_t en1;
-	uint8_t en2;
-	uint8_t	en3;
-	uint8_t	en4;
-	uint8_t	en5;
-	uint8_t	en6;
-
-	uint16_t ADC_CH1;
-	uint16_t ADC_CH2;
-	uint16_t ADC_CH3;
-	uint16_t ADC_CH4;
-	uint16_t ADC_CH5;
-	uint16_t ADC_CH6;
-	uint16_t ADC_Termo;
-
-	uint32_t PWM1;
-	uint32_t PWM2;
-	uint32_t PWM3;
-	uint32_t PWM4;
-	uint32_t PWM5;
-	uint32_t PWM6;
-} ret_pwm_ch_t;
-#pragma pack(pop)
-
-/* USER CODE END ET */
-
-/* Exported constants --------------------------------------------------------*/
-/* USER CODE BEGIN EC */
-
-extern UART_HandleTypeDef huart6;
-extern DMA_HandleTypeDef hdma_usart6_rx;
-extern DMA_HandleTypeDef hdma_usart6_tx;
-extern SPI_HandleTypeDef hspi3;
-
-/* USER CODE END EC */
-
-/* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
-
-#define CURENT_VERSION 1
-#define ID_CTRL 1
-#define NAME "6ch LED Driver"
-#define LWIP_DHCP 1
-
-#define DBG_PORT huart6
-#define DBG_PORT_NAME USART6
-
-#define LOG_ERR "Err: "
-#define LOG_WARN "Warn: "
-#define LOG_OK "OK"
-
-/* USER CODE END EM */
-
-/* Exported functions prototypes ---------------------------------------------*/
-void Error_Handler(void);
-
-/* USER CODE BEGIN EFP */
 
 // Функции инициализации и работы с логгером
 void freeSlotAtomic(uint8_t slot);
@@ -281,54 +310,14 @@ void Logger_Log(const char* format, ...);
 void Logger_Log_xx(const char* format, ...);
 void Logger_Stop(void);
 void Logger_GetStats(LoggerStats_t* stats);
-
 // Макрос для логирования
 #define STM_LOG(...) Logger_Log(__VA_ARGS__)
 #define STM_LOG_xx(...) Logger_Log_xx(__VA_ARGS__)
-
-/* USER CODE END EFP */
-
-/* Private defines -----------------------------------------------------------*/
-#define MAC_IP_Pin_Pin GPIO_PIN_2
-#define MAC_IP_Pin_GPIO_Port GPIOE
-#define R_Pin GPIO_PIN_13
-#define R_GPIO_Port GPIOC
-#define G_Pin GPIO_PIN_14
-#define G_GPIO_Port GPIOC
-#define B_Pin GPIO_PIN_15
-#define B_GPIO_Port GPIOC
-#define eth_NRST_Pin GPIO_PIN_0
-#define eth_NRST_GPIO_Port GPIOA
-#define SPI3_CS_Pin GPIO_PIN_15
-#define SPI3_CS_GPIO_Port GPIOA
-#define WP_Pin GPIO_PIN_0
-#define WP_GPIO_Port GPIOD
-#define HOLD_Pin GPIO_PIN_1
-#define HOLD_GPIO_Port GPIOD
-#define DE_M_Pin GPIO_PIN_4
-#define DE_M_GPIO_Port GPIOD
-
-/* USER CODE BEGIN Private defines */
-
-// Глобальные переменные
-extern uint32_t count_tic;
-
-// LED индикаторы
-extern led_t LED_IPadr;
-extern led_t LED_error;
-extern led_t LED_OSstart;
-
-// SPI Flash
-extern flash mem_spi;
-extern settings_t settings;
-extern bool resetSettings;
-
 // Глобальный экземпляр логгера
 extern UartLogger_t logger;
 
 // Локальный буфер для DMA передачи
 extern char txBuffer[MAX_MESSAGE_SIZE];
-
 // Пул сообщений и буфер для него
 extern LogMessage_t messagePool[QUEUE_SIZE];
 extern uint8_t messagePoolUsed[QUEUE_SIZE];

@@ -1,17 +1,13 @@
-#ifndef LED_H
-#define LED_H
-
 #include "main.h"
 #include "cmsis_os.h"
 
 enum class mode{ON_OFF, BLINK, PULSE};
 enum class status_led_t{ON, OFF};
-
 //******************
 // CLASS: led_t
 //
 // DESCRIPTION:
-//  Класс для работы со светодиодами
+//  ����� ��� ������ ����������
 //
 // CREATED: 16.12.2020, by Sergey
 //
@@ -44,5 +40,3 @@ private:
  GPIO_TypeDef* GPIOx{};
  uint16_t GPIO_Pin{};
 };
-
-#endif // LED_H

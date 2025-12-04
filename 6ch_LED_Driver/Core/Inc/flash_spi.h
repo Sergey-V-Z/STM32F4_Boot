@@ -1,18 +1,23 @@
 #ifndef _W25QXX_H
 #define _W25QXX_H
 
+
 #include "main.h"
 #include "cmsis_os.h"
+
+#define DEBUG_UART               &huart1
 
 #define W25QFLASH_CS_SELECT      HAL_GPIO_WritePin(ChipSelect.GPIO_Port, ChipSelect.GPIO_Pin, GPIO_PIN_RESET);
 #define W25QFLASH_CS_UNSELECT    HAL_GPIO_WritePin(ChipSelect.GPIO_Port, ChipSelect.GPIO_Pin, GPIO_PIN_SET);
 
+
 #define _W25QXX_USE_FREERTOS     0
+
 #define INIT_DEBUG               0
 
 #define W25_WRITE_DISABLE     0x04
 #define W25_WRITE_ENABLE      0x06
-#define W25_CHIP_ERASE        0xC7
+#define W25_CHIP_ERASE        0xC7 //0x60
 #define W25_SECTOR_ERASE      0x20
 #define W25_BLOCK_ERASE       0xD8
 #define W25_FAST_READ         0x0B
@@ -28,15 +33,23 @@
 
 #define W25QXX_DUMMY_BYTE     0xA5
 
-// Структура для хранения описания пинов для флешки
+//******************
+//
+// DESCRIPTION:
+//  структура для хранения описания пинов для флешки
+//
+// CREATED: 24.01.2021, by Ierixon-HP
+//
+// FILE: flash_spi.h
+//
 typedef struct 
-{
+  {
     GPIO_TypeDef* GPIO_Port;
     uint16_t GPIO_Pin;  
-} pins_spi_t;
+  }pins_spi_t;
 
 typedef enum
-{
+  {
     W25Q10 = 1,
     W25Q20,
     W25Q40,
@@ -47,10 +60,11 @@ typedef enum
     W25Q128,
     W25Q256,
     W25Q512,
-} W25QXX_ID_t;
+    
+  }W25QXX_ID_t;
 
 typedef struct
-{
+  {
     W25QXX_ID_t	ID;
     uint8_t		UniqID[8];
     uint16_t	PageSize;
@@ -64,15 +78,27 @@ typedef struct
     uint8_t		StatusRegister2;
     uint8_t		StatusRegister3;	
     uint8_t		Lock;
-} w25qxx_t;
+    
+  }w25qxx_t;
 
-// CLASS: flash - SPI flash driver
+//extern w25qxx_t	w25qxx;
+
+//******************
+// CLASS: flash
+//
+// DESCRIPTION:
+//  spi flash driver
+//
+// CREATED: 20.09.2020, by Ierixon-HP
+//
+// FILE: flash_spi.cpp
+//
 class flash
-{
-public:
+  {
+   public:
     flash();
     ~flash();
-    uint8_t Init(SPI_HandleTypeDef *hspi, uint32_t startAddr, pins_spi_t ChipSelect, pins_spi_t WriteProtect, pins_spi_t Hold, bool UsedInOS = false);
+    uint8_t Init(SPI_HandleTypeDef *hspi, uint32_t startAddr,  pins_spi_t ChipSelect, pins_spi_t WriteProtect, pins_spi_t Hold, bool UsedInOS = false);
     void SetUsedInOS(bool used);
     void Read(settings_t *data);
     bool Write(settings_t data);
@@ -99,22 +125,21 @@ public:
     void W25qxx_Write(uint32_t WriteAddr, uint8_t* pBuffer, uint32_t NumByteToWrite);
 
     void W25qxx_ReadByte(uint8_t *pBuffer, uint32_t Bytes_Address);
-    void W25qxx_ReadBytes(uint32_t ReadAddr, uint8_t* pBuffer, uint32_t NumByteToRead);
+    void W25qxx_ReadBytes( uint32_t ReadAddr, uint8_t* pBuffer, uint32_t NumByteToRead);
     void W25qxx_ReadPage(uint8_t *pBuffer, uint32_t Page_Address, uint32_t OffsetInByte, uint32_t NumByteToRead_up_to_PageSize);
     void W25qxx_ReadSector(uint8_t *pBuffer, uint32_t Sector_Address, uint32_t OffsetInByte, uint32_t NumByteToRead_up_to_SectorSize);
-    void W25qxx_ReadBlock(uint8_t *pBuffer, uint32_t Block_Address, uint32_t OffsetInByte, uint32_t NumByteToRead_up_to_BlockSize);
+    void W25qxx_ReadBlock(uint8_t *pBuffer, uint32_t Block_Address, uint32_t OffsetInByte,uint32_t NumByteToRead_up_to_BlockSize);
 
     w25qxx_t getFlashParam();
-
-private:
+   private:
     uint8_t     W25qxx_Spi(uint8_t Data);
     uint32_t    W25qxx_ReadID();
     void        W25qxx_WaitForWriteEnd();
     void        W25qxx_WriteDisable();
     void        W25qxx_WriteEnable();
     void        W25qxx_ReadUniqID();
-    void        W25qxx_Delay(uint32_t delay);
-    uint32_t    StartAddres;
+    void		W25qxx_Delay(uint32_t delay);
+    uint32_t StartAddres;
 
     SPI_HandleTypeDef *hspi;
     pins_spi_t ChipSelect;
@@ -124,6 +149,8 @@ private:
     HAL_StatusTypeDef lastStatusSPI;
     w25qxx_t w25qxx;
     bool UsedInOS;
-};
+  };
+
+
 
 #endif

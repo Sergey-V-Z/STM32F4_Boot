@@ -50,7 +50,6 @@
  */
 #define RESPONSE_PACKET_SIZE sizeof(ResponsePacket)
 #define METADATA_RESPONSE_SIZE sizeof(MetadataResponsePacket)
-
 /**
  * @brief Структура состояния TCP-сервера
  */

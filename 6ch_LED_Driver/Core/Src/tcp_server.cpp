@@ -60,7 +60,7 @@ uint8_t FirmwareUpdateServer_Start(void) {
         "FWUpdateServer",        // Имя задачи
         512,                     // Размер стека в словах
         NULL,                    // Параметры задачи
-        osPriorityNormal,        // Приоритет
+		osPriorityNormal,    // Приоритет
         &g_serverState.serverTaskHandle  // Указатель на дескриптор задачи
     );
 
@@ -216,6 +216,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
     uint8_t command;
     uint32_t variable;
     uint32_t data_size;
+    //uint32_t crc;
 
     // Принимаем данные от клиента
     err = netconn_recv(client, &netbuf);
@@ -255,6 +256,8 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
     variable = header->variable;
     data_size = header->size;
 
+    //STM_LOG("Received command: %u, Block: %lu, Size: %lu", command, block_number, data_size);
+
     // Обрабатываем команду
     switch (command) {
         case CMD_PING:
@@ -272,7 +275,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
             // Проверяем валидность метаданных
             if (metadata->key_start != METADATA_KEY) {
-                STM_LOG("Invalid metadata key in update request");
+                STM_LOG("Invalid metadata key in backup update request");
                 SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
                 return 5;
             }
@@ -336,6 +339,9 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
                 result = 5;
                 break;
             }
+
+            // Вычисляем и проверяем CRC блока
+            //crc = crc32_calculate(data_ptr, data_size, 0);
 
             // Обрабатываем блок данных прошивки
             result = FirmwareUpdate_ProcessDataBlock(variable, data_ptr, data_size);
@@ -414,6 +420,8 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
             
         case CMD_REBOOT:
         {
+        	//SendResponse(client, UPDATE_STATUS_READY_REBOOT, UPDATE_ERROR_NONE);
+
             ResponsePacket *response = (ResponsePacket *)g_txBuffer;
 
             // Заполняем структуру ответа
@@ -422,23 +430,64 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
             response->error = UPDATE_ERROR_NONE;
             response->reserv = 0xAAAAAAAA; // Инициализируем резервное поле
 
+            //STM_LOG("Sending response: Status=%u, Error=0x%08lX",status, error);
+
             // Отправляем ответ клиенту
             size_t bytes_written = 0;
             err_t err = netconn_write_partly(client, g_txBuffer, RESPONSE_PACKET_SIZE, NETCONN_COPY, &bytes_written);
+            //err_t err = netconn_write(client, g_txBuffer, RESPONSE_PACKET_SIZE, NETCONN_COPY);
             if (err != ERR_OK) {
                 STM_LOG("Failed to send response to client: %d", err);
             } else {
                 STM_LOG("Response sent successfully");
             }
 
-            STM_LOG("Rebooting...");
-            osDelay(3000);
-            
+    		STM_LOG("Rebooting...");
+    		osDelay(3000);
             // Закрываем и удаляем соединение с клиентом
             netconn_close(client);
             netconn_delete(client);
 
-            NVIC_SystemReset();
+    		NVIC_SystemReset();
+
+            break;
+        }
+
+        case CMD_START_SECONDARY_UPDATE:
+        {
+            // Получаем метаданные из g_rxBuffer
+            meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+
+            FWUpdateParams *update_params = (FWUpdateParams *)(g_rxBuffer + PACKET_HEADER_SIZE + sizeof(meta_t));
+
+            // Проверяем валидность метаданных
+            if (metadata->key_start != METADATA_KEY) {
+                STM_LOG("Invalid metadata key in secondary update request");
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
+                return 5;
+            }
+
+            // Команды для обновления вторичных контроллеров - не поддерживаются
+            STM_LOG("Secondary controller update not supported");
+            SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_CMD);
+            result = 7;
+            break;
+        }
+
+        case CMD_STATUS_CELLS:
+        {
+            // Команды для обновления вторичных контроллеров - не поддерживаются
+            STM_LOG("Secondary controller status not supported");
+            SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_CMD);
+            result = 7;
+            break;  
+        }
+
+        case CMD_SECOND_FW_START:
+        {
+            STM_LOG("Secondary firmware update not supported");
+            SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_CMD);
+            result = 7;
             break;
         }
 
@@ -470,9 +519,15 @@ static void SendResponse(struct netconn *client, uint32_t status, uint32_t error
     response->error = error;
     response->reserv = 0xAAAAAAAA; // Инициализируем резервное поле
 
+    //STM_LOG("Sending response: Status=%u, Error=0x%08lX",status, error);
+
     // Отправляем ответ клиенту
     err_t err = netconn_write(client, g_txBuffer, RESPONSE_PACKET_SIZE, NETCONN_COPY);
     if (err != ERR_OK) {
         STM_LOG("Failed to send response to client: %d", err);
+    } else {
+        //STM_LOG("Response sent successfully");
     }
 }
+
+

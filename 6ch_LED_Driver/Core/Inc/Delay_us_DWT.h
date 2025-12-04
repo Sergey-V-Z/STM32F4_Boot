@@ -9,6 +9,9 @@
 /* Подключение заголовочных файлов используемых модулей */
 #include "main.h"
 
+//#define DWT_CONTROL *(volatile unsigned long *)0xE0001000
+//#define SCB_DEMCR   *(volatile unsigned long *)0xE000EDFC
+
 /******************************************************************************/
 /* inline func */
 __STATIC_INLINE void DWT_Init(void)
