@@ -31,11 +31,82 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdarg.h>
+#include <string.h>
+#include "stdio.h"
+#include "FreeRTOS.h"
+#include "cmsis_os.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+
+// Константы метаданных
+#define FIRMWARE_VERSION    0x00000001 // Версия
+#define FIRMWARE_NAME       "6ch_LED_Driver"  // Название устройства
+#define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
+
+// Структура метаданных
+typedef struct {
+    uint32_t key_start;       // Магическое число (0xDEADBEEF)
+    uint32_t version;         // Версия прошивки
+    char name_proj[140];      // Название проекта или устройства
+    uint32_t reserved;        // Зарезервировано для будущего использования
+} meta_t;
+
+// Объявление переменной метаданных
+extern const meta_t firmware_metadata;
+
+// Структура для IP настроек
+typedef struct
+{
+	uint8_t 	ip[4];        // IP адрес
+	uint8_t		mask[4];      // Маска сети
+	uint8_t 	gateway[4];   // Шлюз
+} setIP_t;
+
+// Структура настроек устройства
+#pragma pack(push, 1)
+typedef struct
+{
+	uint8_t devices_depth;            // Глубина иерархии устройств (не используется)
+	uint8_t	MAC[6];                   // MAC адрес
+	uint8_t isON_from_settings;       // Включено из настроек
+	uint8_t IP_end_from_settings;     // Последний октет IP из настроек
+	setIP_t	saveIP;                   // Сохраненные IP настройки
+	uint8_t DHCPset;                  // Включен DHCP
+	uint8_t version;                  // Версия настроек
+	uint32_t reserved[8];             // Зарезервировано (вместо bridge_sett)
+} settings_t;
+#pragma pack(pop)
+
+// Максимальный размер сообщения
+#define MAX_MESSAGE_SIZE 1536
+#define QUEUE_SIZE 8
+
+// Структура сообщения
+typedef struct {
+    char data[MAX_MESSAGE_SIZE];
+    uint16_t length;
+} LogMessage_t;
+
+// Структура логгера
+typedef struct {
+    UART_HandleTypeDef* huart;
+    osMessageQId messageQueue;
+    char* txBuffer;
+    volatile uint8_t isTransmitting;
+    uint8_t started;
+    volatile uint8_t currentMsgIndex;
+} UartLogger_t;
+
+typedef struct {
+    uint8_t totalSlots;
+    uint8_t usedSlots;
+    uint8_t freeSlots;
+    uint8_t isTransmitting;
+    uint32_t queueLength;
+} LoggerStats_t;
 
 /* USER CODE END ET */
 
@@ -53,6 +124,21 @@ extern "C" {
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+
+// Функции инициализации и работы с логгером
+void freeSlotAtomic(uint8_t slot);
+int getFreeSlotAtomic(void);
+void Logger_Init(UART_HandleTypeDef* huart);
+void Logger_Process(void);
+void Logger_TxCpltCallback(void);
+void Logger_Log(const char* format, ...);
+void Logger_Log_xx(const char* format, ...);
+void Logger_Stop(void);
+void Logger_GetStats(LoggerStats_t* stats);
+
+// Макрос для логирования
+#define STM_LOG(...) Logger_Log(__VA_ARGS__)
+#define STM_LOG_xx(...) Logger_Log_xx(__VA_ARGS__)
 
 /* USER CODE END EFP */
 
@@ -77,6 +163,17 @@ void Error_Handler(void);
 #define DE_M_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
+
+// Глобальный экземпляр логгера
+extern UartLogger_t logger;
+
+// Локальный буфер для DMA передачи
+extern char txBuffer[MAX_MESSAGE_SIZE];
+
+// Пул сообщений и буфер для него
+extern LogMessage_t messagePool[QUEUE_SIZE];
+extern uint8_t messagePoolUsed[QUEUE_SIZE];
+extern osMutexId poolMutexHandle;
 
 /* USER CODE END Private defines */
 

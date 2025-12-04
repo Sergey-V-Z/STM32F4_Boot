@@ -25,7 +25,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "LED.h"
+#include "flash_spi.h"
+#include "firmware_update.h"
+#include "tcp_server.h"
+#include "lwip.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,7 +49,11 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-
+extern led_t LED_IPadr;
+extern led_t LED_error;
+extern led_t LED_OSstart;
+extern flash mem_spi;
+extern settings_t settings;
 /* USER CODE END Variables */
 osThreadId MainTaskHandle;
 osThreadId LEDHandle;
@@ -63,7 +71,7 @@ osSemaphoreId mulicom_uartHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-
+// extern "C"
 /* USER CODE END FunctionPrototypes */
 
 void mainTask(void const * argument);
@@ -74,11 +82,10 @@ void mbethTask(void const * argument);
 void uart_Task(void const * argument);
 void LoggerTask(void const * argument);
 
-extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* GetIdleTaskMemory prototype (linked to static allocation support) */
-void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize );
+extern "C" void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize );
 
 /* USER CODE BEGIN GET_IDLE_TASK_MEMORY */
 static StaticTask_t xIdleTaskTCBBuffer;
@@ -192,11 +199,7 @@ void mainTask(void const * argument)
   /* init code for LWIP */
   MX_LWIP_Init();
   /* USER CODE BEGIN mainTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
+  
   /* USER CODE END mainTask */
 }
 
@@ -210,11 +213,7 @@ void mainTask(void const * argument)
 void led(void const * argument)
 {
   /* USER CODE BEGIN led */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
+  
   /* USER CODE END led */
 }
 
@@ -295,6 +294,11 @@ void uart_Task(void const * argument)
 * @brief Function implementing the loggerTask thread.
 * @param argument: Not used
 * @retval None
+/* USER CODE BEGIN Header_LoggerTask */
+/**
+* @brief Function implementing the loggerTask thread.
+* @param argument: Not used
+* @retval None
 */
 /* USER CODE END Header_LoggerTask */
 void LoggerTask(void const * argument)
@@ -303,7 +307,7 @@ void LoggerTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	  osDelay(1);
   }
   /* USER CODE END LoggerTask */
 }

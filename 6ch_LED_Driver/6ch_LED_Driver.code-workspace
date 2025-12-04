@@ -1,8 +1,21 @@
 {
 	"folders": [
 		{
+			"name": "6ch_LED_Driver",
 			"path": "."
+		},
+		{
+			"name": "Control_PWR",
+			"path": "..\\Ethernet_Power_Load_Controller\\Contrrol\\Control_PWR"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"stm32cube-ide-clangd.path": "cube",
+		"C_Cpp.default.configurationProvider": "ms-vscode.cpptools",
+		"C_Cpp.errorSquiggles": "enabled",
+		"files.associations": {
+			"*.h": "c",
+			"*.c": "c"
+		}
+	}
 }

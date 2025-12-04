@@ -29,12 +29,23 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "Delay_us_DWT.h"
+#include "LED.h"
+#include "flash_spi.h"
+#include "firmware_update.h"
+#include "tcp_server.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+// Размещение метаданных по фиксированному адресу с помощью атрибута section
+__attribute__((section(".metadata")))
+const meta_t firmware_metadata = {
+    .key_start = METADATA_KEY,
+    .version = FIRMWARE_VERSION,
+    .name_proj = FIRMWARE_NAME,
+    .reserved = 0
+};
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -50,7 +61,32 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+uint8_t ucHeap[configTOTAL_HEAP_SIZE] __attribute__((section(".ccmram"))) = {0};
 
+led_t LED_IPadr;
+led_t LED_error;
+led_t LED_OSstart;
+
+flash mem_spi;
+
+bool resetSettings = false;
+
+// for SPI Flash
+pins_spi_t ChipSelect = {SPI3_CS_GPIO_Port, SPI3_CS_Pin};
+pins_spi_t WriteProtect = {WP_GPIO_Port, WP_Pin};
+pins_spi_t Hold = {HOLD_GPIO_Port, HOLD_Pin};
+
+settings_t settings = {0, 0x0E};
+
+// Глобальный экземпляр логгера
+UartLogger_t logger;
+
+// Локальный буфер для DMA передачи
+char txBuffer[MAX_MESSAGE_SIZE];
+// Пул сообщений и буфер для него
+LogMessage_t messagePool[QUEUE_SIZE];
+uint8_t messagePoolUsed[QUEUE_SIZE];
+osMutexId poolMutexHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -96,12 +132,69 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI3_Init();
-  MX_USART2_UART_Init();
   MX_USART6_UART_Init();
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
+
+  // Настройка вектора прерываний на адрес приложения
+  extern uint32_t _app_start;
+  SCB->VTOR = (uint32_t)&_app_start;
+  __enable_irq();
+
+  // Инициализация DWT для delay_us
+  DWT_Init();
+
+  // Инициализация SPI Flash
+  mem_spi.Init(&hspi3, SPI_FLASH_CONFIG_ADDRESS, ChipSelect, WriteProtect, Hold, false);
+  mem_spi.Read(&settings);
+
+  // Инициализация RGB LED индикаторов
+  HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET);  // PC15
+  HAL_GPIO_WritePin(B_GPIO_Port, B_Pin, GPIO_PIN_SET);  // PC13
+  HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_SET);  // PC14
+
+  uint8_t endMAC = 0, IP = 100;
+  HAL_GPIO_WritePin(eth_NRST_GPIO_Port, eth_NRST_Pin, GPIO_PIN_SET);
+
+  // Работаем с настройками из флешки
+  if ((settings.version == 0) | (settings.version == 0xFF) | resetSettings)
+  {
+      settings.isON_from_settings = false;
+      settings.IP_end_from_settings = 1;
+      settings.DHCPset = true;
+      settings.devices_depth = 0;
+
+      settings.saveIP.ip[0] = 192;
+      settings.saveIP.ip[1] = 168;
+      settings.saveIP.ip[2] = 1;
+      settings.saveIP.ip[3] = IP;
+
+      settings.saveIP.mask[0] = 255;
+      settings.saveIP.mask[1] = 255;
+      settings.saveIP.mask[2] = 255;
+      settings.saveIP.mask[3] = 0;
+
+      settings.saveIP.gateway[0] = 192;
+      settings.saveIP.gateway[1] = 168;
+      settings.saveIP.gateway[2] = 1;
+      settings.saveIP.gateway[3] = 1;
+
+      settings.MAC[0] = 0x44;
+      settings.MAC[1] = 0x84;
+      settings.MAC[2] = 0x23;
+      settings.MAC[3] = 0x84;
+      settings.MAC[4] = 0x44;
+      settings.MAC[5] = endMAC;
+
+      settings.version = FIRMWARE_VERSION;
+
+      mem_spi.Write(settings);
+      mem_spi.Read(&settings);
+  }
+
+  mem_spi.SetUsedInOS(true); // switch to use in OS
 
   /* USER CODE END 2 */
 

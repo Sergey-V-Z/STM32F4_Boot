@@ -1,0 +1,48 @@
+#ifndef LED_H
+#define LED_H
+
+#include "main.h"
+#include "cmsis_os.h"
+
+enum class mode{ON_OFF, BLINK, PULSE};
+enum class status_led_t{ON, OFF};
+
+//******************
+// CLASS: led_t
+//
+// DESCRIPTION:
+//  Класс для работы со светодиодами
+//
+// CREATED: 16.12.2020, by Sergey
+//
+// FILE: LED.cpp
+//
+class led_t{
+public:
+  led_t();
+  ~led_t();
+  void poll();
+  void Init(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);
+  void setParameters(mode Mode, uint32_t period, uint32_t time_on);
+  void setParameters(mode Mode);
+  void LEDon();
+  void LEDon(uint32_t pulses);
+  void LEDoff();
+  
+private:
+ uint32_t InitStatus = 0;
+ uint32_t Counter_ms = 0;
+ uint32_t PulseCount = 0;
+ uint32_t Pulses = 0;
+ uint32_t Timer = 0;
+ uint32_t Period = 1000;
+ uint32_t Time_on = 100;
+ mode LED_mod = mode::BLINK;
+ status_led_t StateLED = status_led_t::OFF;
+ status_led_t StatusLED = status_led_t::OFF;
+ 
+ GPIO_TypeDef* GPIOx{};
+ uint16_t GPIO_Pin{};
+};
+
+#endif // LED_H
