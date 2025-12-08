@@ -49,7 +49,7 @@ uint8_t NETMASK_ADDRESS[4];
 uint8_t GATEWAY_ADDRESS[4];
 
 /* USER CODE BEGIN 2 */
-
+extern settings_t settings;
 /* USER CODE END 2 */
 
 /**
@@ -72,6 +72,24 @@ void MX_LWIP_Init(void)
   GATEWAY_ADDRESS[3] = 0;
 
 /* USER CODE BEGIN IP_ADDRESSES */
+  if(!settings.DHCPset){
+
+	  IP_ADDRESS[0] = settings.saveIP.ip[0];
+	  IP_ADDRESS[1] = settings.saveIP.ip[1];
+	  IP_ADDRESS[2] = settings.saveIP.ip[2];
+	  IP_ADDRESS[3] = settings.saveIP.ip[3];
+
+	  NETMASK_ADDRESS[0] = settings.saveIP.mask[0];
+	  NETMASK_ADDRESS[1] = settings.saveIP.mask[1];
+	  NETMASK_ADDRESS[2] = settings.saveIP.mask[2];
+	  NETMASK_ADDRESS[3] = settings.saveIP.mask[3];
+
+	  GATEWAY_ADDRESS[0] = settings.saveIP.gateway[0];
+	  GATEWAY_ADDRESS[1] = settings.saveIP.gateway[1];
+	  GATEWAY_ADDRESS[2] = settings.saveIP.gateway[2];
+	  GATEWAY_ADDRESS[3] = settings.saveIP.gateway[3];
+
+  }
 /* USER CODE END IP_ADDRESSES */
 
   /* Initialize the LwIP stack with RTOS */

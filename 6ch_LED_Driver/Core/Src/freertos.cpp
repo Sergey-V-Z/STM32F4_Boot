@@ -103,9 +103,16 @@ uint8_t txRedy = 1;
 osThreadId MainTaskHandle;
 osThreadId LEDHandle;
 osThreadId ethTasHandle;
+osThreadId MBRTUTaskHandle;
+osThreadId MBETHTaskHandle;
+osThreadId uart_taskHandle;
 osThreadId loggerTaskHandle;
+osMessageQId rxDataUART6Handle;
+osMessageQId rxDataUART1Handle;
 osSemaphoreId ADC_endHandle;
 osSemaphoreId ADC_end2Handle;
+osSemaphoreId Resive_USARTHandle;
+osSemaphoreId mulicom_uartHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -115,6 +122,9 @@ osSemaphoreId ADC_end2Handle;
 void mainTask(void const * argument);
 void led(void const * argument);
 void eth_Task(void const * argument);
+void mbrtuTask(void const * argument);
+void mbethTask(void const * argument);
+void uart_Task(void const * argument);
 void LoggerTask(void const * argument);
 
 extern void MX_LWIP_Init(void);
@@ -159,6 +169,14 @@ void MX_FREERTOS_Init(void) {
   osSemaphoreDef(ADC_end2);
   ADC_end2Handle = osSemaphoreCreate(osSemaphore(ADC_end2), 1);
 
+  /* definition and creation of Resive_USART */
+  osSemaphoreDef(Resive_USART);
+  Resive_USARTHandle = osSemaphoreCreate(osSemaphore(Resive_USART), 1);
+
+  /* definition and creation of mulicom_uart */
+  osSemaphoreDef(mulicom_uart);
+  mulicom_uartHandle = osSemaphoreCreate(osSemaphore(mulicom_uart), 1);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
 	/* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
@@ -168,6 +186,14 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
+  /* definition and creation of rxDataUART2 */
+  osMessageQDef(rxDataUART2, 16, uint8_t);
+  rxDataUART6Handle = osMessageCreate(osMessageQ(rxDataUART2), NULL);
+
+  /* definition and creation of rxDataUART1 */
+  osMessageQDef(rxDataUART1, 16, uint16_t);
+  rxDataUART1Handle = osMessageCreate(osMessageQ(rxDataUART1), NULL);
+
   /* USER CODE BEGIN RTOS_QUEUES */
 	/* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -184,6 +210,18 @@ void MX_FREERTOS_Init(void) {
   /* definition and creation of ethTas */
   osThreadDef(ethTas, eth_Task, osPriorityNormal, 0, 768);
   ethTasHandle = osThreadCreate(osThread(ethTas), NULL);
+
+  /* definition and creation of MBRTUTask */
+  osThreadDef(MBRTUTask, mbrtuTask, osPriorityNormal, 0, 256);
+  MBRTUTaskHandle = osThreadCreate(osThread(MBRTUTask), NULL);
+
+  /* definition and creation of MBETHTask */
+  osThreadDef(MBETHTask, mbethTask, osPriorityNormal, 0, 512);
+  MBETHTaskHandle = osThreadCreate(osThread(MBETHTask), NULL);
+
+  /* definition and creation of uart_task */
+  osThreadDef(uart_task, uart_Task, osPriorityNormal, 0, 1024);
+  uart_taskHandle = osThreadCreate(osThread(uart_task), NULL);
 
   /* definition and creation of loggerTask */
   osThreadDef(loggerTask, LoggerTask, osPriorityNormal, 0, 128);
@@ -351,6 +389,128 @@ void eth_Task(void const * argument)
 		osDelay(1);
 	}
   /* USER CODE END eth_Task */
+}
+
+/* USER CODE BEGIN Header_mbrtuTask */
+/**
+* @brief Function implementing the MBRTUTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_mbrtuTask */
+void mbrtuTask(void const * argument)
+{
+  /* USER CODE BEGIN mbrtuTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END mbrtuTask */
+}
+
+/* USER CODE BEGIN Header_mbethTask */
+/**
+* @brief Function implementing the MBETHTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_mbethTask */
+void mbethTask(void const * argument)
+{
+  /* USER CODE BEGIN mbethTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END mbethTask */
+}
+
+/* USER CODE BEGIN Header_uart_Task */
+/**
+* связь с компьютером обработка пришедших сообщений
+* @brief Function implementing the uart_task thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_uart_Task */
+void uart_Task(void const * argument)
+{
+  /* USER CODE BEGIN uart_Task */
+  // Запускаем прием по UART6 (связь с компьютером)
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart6, UART_debug_rx, UART6_RX_LENGTH);
+  __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT);
+
+  /* Infinite loop */
+  for(;;)
+  {
+    // Ожидаем сообщение из очереди
+    osMessageGet(rxDataUART6Handle, osWaitForever);
+
+    // Парсим JSON
+    cJSON *json = cJSON_Parse((char *)message_rx);
+    if (json != NULL)
+    {
+      cJSON *id = cJSON_GetObjectItemCaseSensitive(json, "id");
+      cJSON *type_data = cJSON_GetObjectItemCaseSensitive(json, "type_data");
+      cJSON *save_settings = cJSON_GetObjectItemCaseSensitive(json, "save_settings");
+      cJSON *obj = cJSON_GetObjectItemCaseSensitive(json, "obj");
+
+      if (cJSON_IsNumber(id) && cJSON_GetNumberValue(id) == ID_CTRL)
+      {
+        bool save_set = false;
+        if (cJSON_IsTrue(save_settings))
+        {
+          save_set = true;
+        }
+
+        if (cJSON_IsNumber(type_data))
+        {
+          switch (type_data->valueint)
+          {
+          case 1: // ip settings
+          {
+            action_ip(obj, save_set);
+            break;
+          }
+          case 3: // commands
+          {
+            // Команды больше не используются для вторичных контроллеров
+            STM_LOG("Commands type not supported");
+            break;
+          }
+          case 4: // get settings
+          {
+            action_settings_data(obj);
+            break;
+          }
+          default:
+          {
+            STM_LOG("data type not registered");
+            break;
+          }
+          }
+        }
+        else
+        {
+          STM_LOG("Invalid type data");
+        }
+      }
+      else
+      {
+        STM_LOG("id not valid");
+      }
+
+      cJSON_Delete(json);
+    }
+    else
+    {
+      STM_LOG("Invalid JSON");
+    }
+    osDelay(10);
+  }
+  /* USER CODE END uart_Task */
 }
 
 /* USER CODE BEGIN Header_LoggerTask */

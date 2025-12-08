@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "adc.h"
 #include "dma.h"
 #include "lwip.h"
 #include "spi.h"
@@ -96,13 +97,14 @@ uint16_t indx_UART2_rx = 0;
 uint16_t Size_message = 0;
 uint16_t Start_index = 0;
 
+extern osMessageQId rxDataUART6Handle;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
-uint8_t ReadStraps();
 void finishedBlink();
 void timoutBlink();
 
@@ -149,9 +151,10 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI3_Init();
+  MX_USART6_UART_Init();
+  MX_ADC1_Init();
   MX_TIM1_Init();
   MX_TIM4_Init();
-  MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
 
     // Инициализация PWM контроллера
@@ -282,282 +285,6 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-/*
-// Инициализация логгера
-void Logger_Init(UART_HandleTypeDef* huart) {
-    // Сохраняем указатель на UART
-    logger.huart = huart;
-    logger.isTransmitting = 0;
-    logger.txBuffer = txBuffer;
-    logger.started = 1;
-
-    // Очищаем пул сообщений
-    memset(messagePoolUsed, 0, sizeof(messagePoolUsed));
-
-    // Создаем мьютекс для пула
-    osMutexDef(poolMutex);
-    poolMutexHandle = osMutexCreate(osMutex(poolMutex));
-
-    // Создаем очередь сообщений (теперь храним только индексы)
-    osMessageQDef(logQueue, QUEUE_SIZE, uint32_t);
-    logger.messageQueue = osMessageCreate(osMessageQ(logQueue), NULL);
-}
-
-// Обработка сообщений и отправка через UART
-void Logger_Process(void) {
-    if (!logger.isTransmitting) {
-        osEvent event = osMessageGet(logger.messageQueue, 0); // Неблокирующее получение
-
-        if (event.status == osEventMessage) {
-            uint32_t msgIndex = event.value.v;
-            if(msgIndex < QUEUE_SIZE) {
-                LogMessage_t* msg = &messagePool[msgIndex];
-
-                // Проверка валидности сообщения
-                if(msg->length > 0 && msg->length < MAX_MESSAGE_SIZE) {
-                    // Копируем сообщение в буфер отправки
-                    memcpy(logger.txBuffer, msg->data, msg->length);
-
-                    // Освобождаем слот в пуле
-                    uint32_t primask_bit;
-                    primask_bit = __get_PRIMASK();
-                    __disable_irq();
-                    messagePoolUsed[msgIndex] = 0;
-                    if (!primask_bit) {
-                        __enable_irq();
-                    }
-
-                    // Начинаем передачу
-                    logger.isTransmitting = 1;
-
-                    // Проверяем состояние DMA перед отправкой
-                    if(huart2.hdmatx->State == HAL_DMA_STATE_READY) {
-                        HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(logger.huart, (uint8_t*)logger.txBuffer, msg->length);
-                        if(status != HAL_OK) {
-                            // Если DMA не готов, используем обычную передачу
-                            HAL_UART_Transmit(logger.huart, (uint8_t*)logger.txBuffer, msg->length, 100);
-                            logger.isTransmitting = 0;
-                        }
-                    } else {
-                        // DMA занят, используем обычную передачу
-                        HAL_UART_Transmit(logger.huart, (uint8_t*)logger.txBuffer, msg->length, 100);
-                        logger.isTransmitting = 0;
-                    }
-                } else {
-                    // Некорректный размер сообщения - просто освобождаем слот
-                    uint32_t primask_bit;
-                    primask_bit = __get_PRIMASK();
-                    __disable_irq();
-                    messagePoolUsed[msgIndex] = 0;
-                    if (!primask_bit) {
-                        __enable_irq();
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Callback завершения передачи
-void Logger_TxCpltCallback(void) {
-    logger.isTransmitting = 0;
-}
-
-// Функция логирования (может вызываться из прерывания или потока)
-void Logger_Log(const char* format, ...) {
-    if(!logger.started) return;
-    if (!format) return;
-
-    int slot = -1;
-
-    // Безопасное получение слота с учетом контекста (прерывание или нет)
-    if(isInInterrupt()) {
-        // В прерывании - атомарно захватываем слот
-        // Используем атомарный подход без мьютекса (мьютексы недопустимы в прерываниях)
-        for(int i = 0; i < QUEUE_SIZE; i++) {
-            if(messagePoolUsed[i] == 0) {
-                // Попытка атомарно захватить слот
-                uint32_t primask_bit;
-                primask_bit = __get_PRIMASK();
-                __disable_irq();
-                if(messagePoolUsed[i] == 0) {
-                    messagePoolUsed[i] = 1;
-                    slot = i;
-                }
-                if (!primask_bit) {
-                    __enable_irq();
-                }
-                if(slot >= 0) break;
-            }
-        }
-    } else {
-        // В обычном коде используем мьютекс
-        osMutexWait(poolMutexHandle, osWaitForever);
-        slot = getFreeMessageSlot();
-        osMutexRelease(poolMutexHandle);
-    }
-
-    if(slot < 0) return; // Нет свободных слотов
-
-    LogMessage_t* msg = &messagePool[slot];
-    va_list args;
-
-    va_start(args, format);
-    int length = vsnprintf(msg->data, MAX_MESSAGE_SIZE-3, format, args);
-    va_end(args);
-
-    if (length <= 0) {
-        // Атомарное освобождение слота
-        uint32_t primask_bit;
-        primask_bit = __get_PRIMASK();
-        __disable_irq();
-        messagePoolUsed[slot] = 0;
-        if (!primask_bit) {
-            __enable_irq();
-        }
-        return;
-    }
-
-    // Добавляем '\r' и нулевой символ для завершения отправки
-
-    msg->data[length] = '\r';
-    msg->data[length + 1] = '\x03';
-    msg->data[length + 2] = '\x04';
-    msg->length = length + 3;
-
-    // Помещаем индекс сообщения в очередь
-    osStatus status = osMessagePut(logger.messageQueue, slot, 10);
-    if(status != osOK) {
-        // Атомарное освобождение слота при ошибке
-        uint32_t primask_bit;
-        primask_bit = __get_PRIMASK();
-        __disable_irq();
-        messagePoolUsed[slot] = 0;
-        if (!primask_bit) {
-            __enable_irq();
-        }
-    }
-}
-
-// Функция логирования (может вызываться из прерывания или потока)
-void Logger_Log_xx(const char* format, ...) {
-    if(!logger.started) return;
-    if (!format) return;
-
-    int slot = -1;
-
-    // Безопасное получение слота с учетом контекста (прерывание или нет)
-    if(isInInterrupt()) {
-        // В прерывании - атомарно захватываем слот
-        // Используем атомарный подход без мьютекса (мьютексы недопустимы в прерываниях)
-        for(int i = 0; i < QUEUE_SIZE; i++) {
-            if(messagePoolUsed[i] == 0) {
-                // Попытка атомарно захватить слот
-                uint32_t primask_bit;
-                primask_bit = __get_PRIMASK();
-                __disable_irq();
-                if(messagePoolUsed[i] == 0) {
-                    messagePoolUsed[i] = 1;
-                    slot = i;
-                }
-                if (!primask_bit) {
-                    __enable_irq();
-                }
-                if(slot >= 0) break;
-            }
-        }
-    } else {
-        // В обычном коде используем мьютекс
-        osMutexWait(poolMutexHandle, osWaitForever);
-        slot = getFreeMessageSlot();
-        osMutexRelease(poolMutexHandle);
-    }
-
-    if(slot < 0) return; // Нет свободных слотов
-
-    LogMessage_t* msg = &messagePool[slot];
-    va_list args;
-
-    va_start(args, format);
-    int length = vsnprintf(msg->data, MAX_MESSAGE_SIZE, format, args);
-    va_end(args);
-
-    if (length <= 0) {
-        // Атомарное освобождение слота
-        uint32_t primask_bit;
-        primask_bit = __get_PRIMASK();
-        __disable_irq();
-        messagePoolUsed[slot] = 0;
-        if (!primask_bit) {
-            __enable_irq();
-        }
-        return;
-    }
-
-    msg->length = length;
-    // Помещаем индекс сообщения в очередь
-    osStatus status = osMessagePut(logger.messageQueue, slot, 10);
-    if(status != osOK) {
-        // Атомарное освобождение слота при ошибке
-        uint32_t primask_bit;
-        primask_bit = __get_PRIMASK();
-        __disable_irq();
-        messagePoolUsed[slot] = 0;
-        if (!primask_bit) {
-            __enable_irq();
-        }
-    }
-}
-*/
-
-uint8_t ReadStraps()
-{
-    uint8_t tempStraps;
-
-    // Bit0
-    if (HAL_GPIO_ReadPin(MAC_b0_GPIO_Port, MAC_b0_Pin))
-        SET_BIT(tempStraps, 1 << 0);
-    else
-        CLEAR_BIT(tempStraps, 1 << 0);
-    // Bit1
-    if (HAL_GPIO_ReadPin(MAC_b1_GPIO_Port, MAC_b1_Pin))
-        SET_BIT(tempStraps, 1 << 1);
-    else
-        CLEAR_BIT(tempStraps, 1 << 1);
-    // Bit2
-    if (HAL_GPIO_ReadPin(MAC_b2_GPIO_Port, MAC_b2_Pin))
-        SET_BIT(tempStraps, 1 << 2);
-    else
-        CLEAR_BIT(tempStraps, 1 << 2);
-    // Bit3
-    if (HAL_GPIO_ReadPin(MAC_b3_GPIO_Port, MAC_b3_Pin))
-        SET_BIT(tempStraps, 1 << 3);
-    else
-        CLEAR_BIT(tempStraps, 1 << 3);
-    // Bit4
-    if (HAL_GPIO_ReadPin(MAC_b4_GPIO_Port, MAC_b4_Pin))
-        SET_BIT(tempStraps, 1 << 4);
-    else
-        CLEAR_BIT(tempStraps, 1 << 4);
-    // Bit5
-    if (HAL_GPIO_ReadPin(MAC_b5_GPIO_Port, MAC_b5_Pin))
-        SET_BIT(tempStraps, 1 << 5);
-    else
-        CLEAR_BIT(tempStraps, 1 << 5);
-    // Bit6
-    if (HAL_GPIO_ReadPin(MAC_b6_GPIO_Port, MAC_b6_Pin))
-        SET_BIT(tempStraps, 1 << 6);
-    else
-        CLEAR_BIT(tempStraps, 1 << 6);
-    // Bit7
-    if (HAL_GPIO_ReadPin(MAC_b7_GPIO_Port, MAC_b7_Pin))
-        SET_BIT(tempStraps, 1 << 7);
-    else
-        CLEAR_BIT(tempStraps, 1 << 7);
-
-    return tempStraps;
-}
-
 void finishedBlink()
 {
 #define timeBetween 300
@@ -627,7 +354,21 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
             {
                 message_rx[indx_message_rx + Size_Data] = 0;
 
-                // Обработка сообщения выполнена
+                // Отправляем сообщение в очередь с таймаутом 0
+                osStatus status = osMessagePut(rxDataUART6Handle, (uint32_t)indx_message_rx, 0);
+                if (status != osOK)
+                {
+                    // Если очередь заполнена, очищаем ее
+                    osEvent evt;
+                    do
+                    {
+                        evt = osMessageGet(rxDataUART6Handle, 0);
+                    } while (evt.status == osEventMessage);
+
+                    // Пытаемся отправить снова
+                    status = osMessagePut(rxDataUART6Handle, (uint32_t)indx_message_rx, 0);
+                }
+
                 Size_message = 0;
                 indx_message_rx = 0;
             }
