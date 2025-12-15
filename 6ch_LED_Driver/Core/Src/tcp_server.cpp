@@ -275,10 +275,13 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
             // Проверяем валидность метаданных
             if (metadata->key_start != METADATA_KEY) {
-                STM_LOG("Invalid metadata key in backup update request");
+                STM_LOG("Invalid metadata key in main update request: 0x%08lX, expected: 0x%08lX", metadata->key_start, METADATA_KEY);
                 SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
                 return 5;
             }
+            
+            STM_LOG("Starting main firmware update: %s v%lu, size: %lu bytes", 
+                    metadata->name_proj, metadata->version, update_params->fw_size);
 
             // Проверяем, что размер прошивки не превышает максимально допустимый
             if (update_params->fw_size > SPI_FLASH_MAIN_FW_SIZE) {
@@ -305,10 +308,13 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
             // Проверяем валидность метаданных
             if (metadata->key_start != METADATA_KEY) {
-                STM_LOG("Invalid metadata key in backup update request");
+                STM_LOG("Invalid metadata key in backup update request: 0x%08lX, expected: 0x%08lX", metadata->key_start, METADATA_KEY);
                 SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
                 return 5;
             }
+            
+            STM_LOG("Starting backup firmware update: %s v%lu, size: %lu bytes", 
+                    metadata->name_proj, metadata->version, update_params->fw_size);
 
             // Проверяем, что размер прошивки не превышает максимально допустимый
             if (update_params->fw_size > SPI_FLASH_BACKUP_FW_SIZE) {
@@ -476,10 +482,22 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
         case CMD_STATUS_CELLS:
         {
-            // Команды для обновления вторичных контроллеров - не поддерживаются
-            STM_LOG("Secondary controller status not supported");
-            SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_CMD);
-            result = 7;
+            // Получаем конфигурацию ячеек прошивок
+            extern SecondaryFirmwareConfig secondaryConfig;
+            
+            // Обновляем информацию о главной и резервной прошивках
+            GetSecondaryFirmwareConfig(&secondaryConfig);
+            
+            STM_LOG("Sending firmware cells status");
+            
+            // Отправляем конфигурацию
+            err_t err = netconn_write(client, &secondaryConfig, sizeof(SecondaryFirmwareConfig), NETCONN_COPY);
+            if (err != ERR_OK) {
+                STM_LOG("Failed to send cell status: %d", err);
+                result = 1;
+            } else {
+                STM_LOG("Cell status sent successfully");
+            }
             break;  
         }
 

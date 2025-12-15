@@ -8,6 +8,7 @@
 
 #include "pwm_controller.h"
 #include "stm32f4xx_hal.h"
+#include "tim.h"
 
 /* Global PWM controller instance */
 PWM_Controller_t pwm_controller = {0};
@@ -48,11 +49,8 @@ bool PWM_Init(TIM_HandleTypeDef *htim1, TIM_HandleTypeDef *htim4)
  */
 static bool PWM_ConfigureTimers(void)
 {
-    // TIM1 and TIM4 should be configured in CubeMX with:
-    // - Prescaler to achieve desired frequency
-    // - ARR (Auto-reload) = PWM_MAX_VALUE for 0-1000 range
-    // - PWM mode
-    // - Output channels enabled
+    // Reconfigure timers for 1kHz PWM with 0-1000 range
+    PWM_ReconfigureTimers();
 
     // Start PWM on all channels
     // TIM1 channels (CH1, CH2, CH3, CH4)
@@ -80,31 +78,35 @@ static void PWM_UpdateChannel(PWM_Channel_t channel)
     if (value > PWM_MAX_VALUE) {
         value = PWM_MAX_VALUE;
     }
+    
+    // Scale value from 0-1000 to 0-999 (timer period)
+    // value / 1000 * 999 = value * 999 / 1000
+    uint16_t compare_value = (uint16_t)((uint32_t)value * PWM_PERIOD / PWM_MAX_VALUE);
 
     // Map channel to timer and channel
     switch (channel) {
         case PWM_CH1: // TIM4_CH2 - PD13
-            __HAL_TIM_SET_COMPARE(pwm_controller.htim4, TIM_CHANNEL_2, value);
+            __HAL_TIM_SET_COMPARE(pwm_controller.htim4, TIM_CHANNEL_2, compare_value);
             break;
 
         case PWM_CH2: // TIM4_CH1 - PD12
-            __HAL_TIM_SET_COMPARE(pwm_controller.htim4, TIM_CHANNEL_1, value);
+            __HAL_TIM_SET_COMPARE(pwm_controller.htim4, TIM_CHANNEL_1, compare_value);
             break;
 
         case PWM_CH3: // TIM1_CH4 - PE14
-            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_4, value);
+            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_4, compare_value);
             break;
 
         case PWM_CH4: // TIM1_CH3 - PE13
-            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_3, value);
+            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_3, compare_value);
             break;
 
         case PWM_CH5: // TIM1_CH2 - PE11
-            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_2, value);
+            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_2, compare_value);
             break;
 
         case PWM_CH6: // TIM1_CH1 - PE9
-            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_1, value);
+            __HAL_TIM_SET_COMPARE(pwm_controller.htim1, TIM_CHANNEL_1, compare_value);
             break;
 
         default:

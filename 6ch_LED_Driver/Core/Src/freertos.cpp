@@ -30,6 +30,7 @@
 #include "flash_spi.h"
 #include "LED.h"
 #include "lwip.h"
+#include "adc.h"
 using namespace std;
 #include <string>
 #include "api.h"
@@ -61,6 +62,8 @@ using namespace std;
 /* USER CODE BEGIN Variables */
 
 extern settings_t settings;
+extern ADC_HandleTypeDef hadc1;  // АЦП handle для работы с DMA
+
 uint16_t sensBuff[8] = {0};
 uint8_t sensState = 255; // битовое поле
 
@@ -69,6 +72,12 @@ uint32_t pwmSens;
 
 uint16_t adc_buffer[24] = {0};
 uint16_t adc_buffer2[24] = {0};
+
+// ACS712 current sensor variables - DMA mode
+#define ADC_SAMPLES 16  // Количество измерений для усреднения
+uint16_t adc_dma_buffer[ADC_SAMPLES] = {0};  // Буфер для DMA
+volatile uint8_t adc_conversion_complete = 0;  // Флаг завершения конверсии
+float g_current_amperes = 0.0f;  // Глобальная переменная для хранения тока в амперах
 
 extern led_t LED_IPadr;
 extern led_t LED_error;
@@ -95,6 +104,8 @@ extern uint16_t Start_index;
 uint32_t Start = 0;
 extern flash mem_spi;
 
+SecondaryFirmwareConfig secondaryConfig;
+
 //переменные для тестов
 
 uint8_t txRedy = 1;
@@ -117,6 +128,12 @@ osSemaphoreId mulicom_uartHandle;
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 // extern "C"
+
+// Функции для работы с датчиком тока ACS712 (DMA режим)
+void ACS712_StartDMA_Conversion(void);
+float ACS712_ProcessData(void);
+uint16_t ACS712_MovingAverage(uint16_t* data, uint16_t size);
+
 /* USER CODE END FunctionPrototypes */
 
 void mainTask(void const * argument);
@@ -186,9 +203,9 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_TIMERS */
 
   /* Create the queue(s) */
-  /* definition and creation of rxDataUART2 */
-  osMessageQDef(rxDataUART2, 16, uint8_t);
-  rxDataUART6Handle = osMessageCreate(osMessageQ(rxDataUART2), NULL);
+  /* definition and creation of rxDataUART6 */
+  osMessageQDef(rxDataUART6, 16, uint8_t);
+  rxDataUART6Handle = osMessageCreate(osMessageQ(rxDataUART6), NULL);
 
   /* definition and creation of rxDataUART1 */
   osMessageQDef(rxDataUART1, 16, uint16_t);
@@ -251,6 +268,19 @@ void mainTask(void const * argument)
 
     STM_LOG("Start %s app. Ver %d", FIRMWARE_NAME, FIRMWARE_VERSION);
 
+	if (GetSecondaryFirmwareConfig(&secondaryConfig))
+	{
+		// Конфигурация успешно получена
+		STM_LOG("Secondary firmware config OK");
+	}
+	else
+	{
+		// Ошибка получения конфигурации
+		STM_LOG("Failed to get secondary firmware config");
+		ResetSecondaryFirmwareConfig(); // записывает дефолтные значения
+		STM_LOG("Secondary firmware config reset");
+	}
+
   	/* Инициализируем модуль обновления прошивки */
   	FirmwareUpdate_Init(&mem_spi);
 
@@ -262,13 +292,26 @@ void mainTask(void const * argument)
 
   	STM_LOG("Firmware updater ready");
   	STM_LOG("PWM controller initialized with 6 channels");
+  	STM_LOG("ACS712 current sensor initialized (DMA mode)");
 
 	/* Infinite loop */
 	for(;;)
 	{
-		// Основной цикл теперь только обрабатывает обновление прошивки
-		// PWM управляется через TCP команды напрямую
-        osDelay(100);
+		// Запускаем преобразование АЦП с DMA (16 измерений канала PA4)
+		ACS712_StartDMA_Conversion();
+		
+		// Ждем завершения конверсии (callback установит флаг и обработает данные)
+		uint32_t timeout = 100; // таймаут в мс
+		uint32_t start_tick = osKernelSysTick();
+		while (!adc_conversion_complete && (osKernelSysTick() - start_tick) < timeout)
+		{
+			osDelay(1);
+		}
+		
+		// Значение тока уже обработано в callback и сохранено в g_current_amperes
+		// Можно использовать для мониторинга или защиты
+		
+		osDelay(100); // Период опроса 100 мс
 	}
   /* USER CODE END mainTask */
 }
@@ -918,5 +961,91 @@ void action_settings_data(cJSON *obj)
 
 }
 
+/**
+ * @brief  Запуск преобразования АЦП с DMA
+ * @note   Запускает 16 последовательных измерений канала PA4 с DMA
+ */
+void ACS712_StartDMA_Conversion(void)
+{
+    // Сбрасываем флаг завершения
+    adc_conversion_complete = 0;
+    
+    // Запускаем АЦП с DMA (16 измерений)
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_dma_buffer, ADC_SAMPLES);
+}
+
+/**
+ * @brief  Фильтр скользящего среднего
+ * @param  data - указатель на массив данных
+ * @param  size - размер массива
+ * @retval Среднее значение
+ */
+uint16_t ACS712_MovingAverage(uint16_t* data, uint16_t size)
+{
+    uint32_t sum = 0;
+    
+    // Суммируем все значения
+    for (uint16_t i = 0; i < size; i++)
+    {
+        sum += data[i];
+    }
+    
+    // Возвращаем среднее значение
+    return (uint16_t)(sum / size);
+}
+
+/**
+ * @brief  Обработка данных АЦП и преобразование в ток
+ * @note   Применяет фильтр скользящего среднего и преобразует в ток
+ *         ACS712ELCTR-20B-T характеристики:
+ *         - Чувствительность: 100 мВ/А
+ *         - Выходное напряжение при 0А: 2.5В (VCC/2 при VCC=5В)
+ *         - На PA4 подключен через делитель на 2
+ *         - АЦП 12-бит, VREF = 3.3В
+ * @retval Ток в амперах
+ */
+float ACS712_ProcessData(void)
+{
+    // Применяем фильтр скользящего среднего
+    uint16_t adc_avg = ACS712_MovingAverage(adc_dma_buffer, ADC_SAMPLES);
+    
+    // Преобразуем значение АЦП в напряжение (В)
+    // VREF = 3.3В, 12-бит АЦП (4096 уровней)
+    float voltage_on_adc = (float)adc_avg * 3.3f / 4096.0f;
+    
+    // Учитываем делитель напряжения (на 2)
+    // Напряжение на выходе ACS712 в 2 раза больше
+    float voltage_acs712 = voltage_on_adc * 2.0f;
+    
+    // ACS712 выдает 2.5В при токе 0А
+    // Чувствительность 100 мВ/А = 0.1 В/А
+    float zero_current_voltage = 2.5f;  // В
+    float sensitivity = 0.1f;            // В/А
+    
+    // Вычисляем ток
+    // I = (V_out - V_zero) / Sensitivity
+    float current = (voltage_acs712 - zero_current_voltage) / sensitivity;
+    
+    // Обновляем глобальную переменную
+    g_current_amperes = current;
+    
+    return current;
+}
+
+/**
+ * @brief  Callback вызываемый при завершении преобразования АЦП через DMA
+ * @param  hadc - указатель на handle АЦП
+ */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    if (hadc->Instance == ADC1)
+    {
+        // Устанавливаем флаг завершения конверсии
+        adc_conversion_complete = 1;
+        
+        // Обрабатываем данные (применяем фильтр и преобразуем в ток)
+        ACS712_ProcessData();
+    }
+}
 
 /* USER CODE END Application */

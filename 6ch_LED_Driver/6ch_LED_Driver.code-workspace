@@ -7,6 +7,12 @@
 		{
 			"name": "Control_PWR",
 			"path": "..\\Ethernet_Power_Load_Controller\\Contrrol\\Control_PWR"
+		},
+		{
+			"path": "../../settings_tool"
+		},
+		{
+			"path": "../UD_v4"
 		}
 	],
 	"settings": {

@@ -22,6 +22,57 @@
 
 /* USER CODE BEGIN 0 */
 
+/**
+ * @brief Reconfigure timers for PWM with 1kHz frequency and 0-1000 range
+ * @note Call this function after MX_TIM1_Init() and MX_TIM4_Init()
+ */
+void PWM_ReconfigureTimers(void)
+{
+    // Stop timers before reconfiguration
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
+    HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_4);
+    HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_2);
+
+    // Reconfigure TIM1 (APB2, 168 MHz)
+    // Prescaler: 168 MHz / (167+1) = 1 MHz
+    // Period: 1 MHz / (999+1) = 1 kHz
+    htim1.Init.Prescaler = 167;
+    htim1.Init.Period = 999;
+    htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    HAL_TIM_PWM_Init(&htim1);
+
+    // Reconfigure TIM4 (APB1*2, 84 MHz)
+    // Prescaler: 84 MHz / (83+1) = 1 MHz
+    // Period: 1 MHz / (999+1) = 1 kHz
+    htim4.Init.Prescaler = 83;
+    htim4.Init.Period = 999;
+    htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    HAL_TIM_PWM_Init(&htim4);
+
+    // Reconfigure all PWM channels
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = 0;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+    // TIM1 channels
+    sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+    sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+    sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+    HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1);
+    HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2);
+    HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3);
+    HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4);
+
+    // TIM4 channels
+    HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1);
+    HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2);
+}
+
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim1;

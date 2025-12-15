@@ -42,8 +42,8 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000006 // Версия
-#define FIRMWARE_NAME       "Control PWR"  // Название устройства
+#define FIRMWARE_VERSION    0x00000016 // Версия
+#define FIRMWARE_NAME       "6ch_LED_Driver"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
 
 // Структура метаданных
@@ -254,6 +254,25 @@ typedef struct {
     uint32_t cell_num;        // номер ячейки
     uint32_t reserved;        // Зарезервировано
 } FWUpdateParams;
+
+// Максимальное количество ячеек прошивок
+#define MAX_CELLS 6
+
+// Структура состояния ячейки прошивки
+typedef struct {
+    uint32_t cell_address;              // Адрес ячейки
+    uint32_t fw_size;                   // Размер прошивки
+    uint32_t fw_crc;                    // CRC прошивки
+    meta_t metadata;                    // Метаданные прошивки в ячейке
+    uint32_t load_permission;           // Разрешение на загрузку прошивки в контроллер
+} FirmwareUpdateCellState;
+
+// Структура конфигурации всех ячеек прошивок
+typedef struct {
+    FirmwareUpdateCellState cells[MAX_CELLS]; // массив состояний ячеек
+    uint32_t active_cell;                     // активная ячейка
+    uint32_t crc;                             // CRC структуры
+} SecondaryFirmwareConfig;
 
 // Максимальный размер сообщения
 #define MAX_MESSAGE_SIZE 1536

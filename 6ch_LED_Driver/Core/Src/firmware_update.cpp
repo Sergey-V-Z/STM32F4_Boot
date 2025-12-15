@@ -990,65 +990,90 @@ uint8_t TransferFirmwareToSecondaryBoard(DEV_t *dev, FirmwareUpdateCellState cel
     return 0;
 }
 
+#endif // Конец блока обновления прошивки вторичных плат
+
 /* 
 
-функции для работы с SPI_SECOND_CONFIG_ADDRESS там хранятся данные по вторичным прошивкам 
+Функции для работы с SPI_SECOND_CONFIG_ADDRESS - хранение конфигурации прошивок
 
 */
 
-// чтение конфигурации вторичной прошивки
+// Чтение конфигурации прошивок
 uint8_t GetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config) {
-    if (config == NULL) {
+    if (config == NULL || g_spiFlash == NULL) {
         return 0;
     }
+    
     // Чтение данных из SPI Flash
-    mem_spi.W25qxx_ReadBytes(SPI_SECOND_CONFIG_ADDRESS, (uint8_t*)config, sizeof(SecondaryFirmwareConfig));
-    // проверить crc
-    if (CRC_Calculate((uint8_t*)config, sizeof(SecondaryFirmwareConfig) - sizeof(config->crc)) != config->crc) {
-        STM_LOG("CRC check failed for secondary firmware config");
+    g_spiFlash->W25qxx_ReadBytes(SPI_SECOND_CONFIG_ADDRESS, (uint8_t*)config, sizeof(SecondaryFirmwareConfig));
+    
+    // Проверить CRC
+    uint32_t calculated_crc = CRC_Calculate((uint8_t*)config, sizeof(SecondaryFirmwareConfig) - sizeof(config->crc));
+    if (calculated_crc != config->crc) {
+        STM_LOG("CRC check failed for firmware config: calculated 0x%08lX, stored 0x%08lX", calculated_crc, config->crc);
         return 0;
     }
+    
+    STM_LOG("Firmware config loaded successfully");
     return 1;
 }
 
-// запись конфигурации
+// Запись конфигурации прошивок
 uint8_t SetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config) {
-
-    // вычислить crc
-    config->crc = CRC_Calculate((uint8_t*)config, sizeof(SecondaryFirmwareConfig) - sizeof(config->crc));
-
-    // Стирание сектора(4К) перед записью
-    mem_spi.W25qxx_EraseSector(SPI_SECOND_CONFIG_ADDRESS);
-    HAL_Delay(100);
-    mem_spi.W25qxx_Write(SPI_SECOND_CONFIG_ADDRESS, (uint8_t*)config, sizeof(SecondaryFirmwareConfig));
-
-    // подтверждение записи проверить первые байты а не всю структуру
-    uint8_t verify_data[16];
-    mem_spi.W25qxx_ReadBytes(SPI_SECOND_CONFIG_ADDRESS, verify_data, sizeof(verify_data));
-
-    if (memcmp(verify_data, (uint8_t*)config, sizeof(verify_data)) != 0) {
-        STM_LOG("Failed to verify secondary firmware config");
+    if (config == NULL || g_spiFlash == NULL) {
         return 0;
     }
-
+    
+    // Вычислить CRC
+    config->crc = CRC_Calculate((uint8_t*)config, sizeof(SecondaryFirmwareConfig) - sizeof(config->crc));
+    
+    // Стирание сектора перед записью
+    uint32_t sector = SPI_SECOND_CONFIG_ADDRESS / g_spiFlash->getFlashParam().SectorSize;
+    g_spiFlash->W25qxx_EraseSector(sector);
+    HAL_Delay(100);
+    
+    // Запись конфигурации
+    g_spiFlash->W25qxx_Write(SPI_SECOND_CONFIG_ADDRESS, (uint8_t*)config, sizeof(SecondaryFirmwareConfig));
+    
+    // Подтверждение записи - проверить первые байты
+    uint8_t verify_data[16];
+    g_spiFlash->W25qxx_ReadBytes(SPI_SECOND_CONFIG_ADDRESS, verify_data, sizeof(verify_data));
+    
+    if (memcmp(verify_data, (uint8_t*)config, sizeof(verify_data)) != 0) {
+        STM_LOG("Failed to verify firmware config");
+        return 0;
+    }
+    
+    STM_LOG("Firmware config saved successfully");
     return 1;
 }
 
-// сброс конфигурации вторичной прошивки
+// Сброс конфигурации прошивок
 void ResetSecondaryFirmwareConfig(void) {
+    extern SecondaryFirmwareConfig secondaryConfig;
+    
     // Инициализация структуры нулями
     memset(&secondaryConfig, 0, sizeof(SecondaryFirmwareConfig));
-    // заполнение адресов
-    secondaryConfig.cells[0].cell_address = SPI_FIRMWARE_S1_ADDRESS;
-    secondaryConfig.cells[1].cell_address = SPI_FIRMWARE_S2_ADDRESS;
-    secondaryConfig.cells[2].cell_address = SPI_FIRMWARE_S3_ADDRESS;
-    secondaryConfig.cells[3].cell_address = SPI_FIRMWARE_S4_ADDRESS;
-    secondaryConfig.cells[4].cell_address = SPI_FIRMWARE_S5_ADDRESS;
-    secondaryConfig.cells[5].cell_address = SPI_FIRMWARE_S6_ADDRESS;
-
-    // расчет crc
-    //secondaryConfig.crc = CRC_Calculate((uint8_t*)&secondaryConfig, sizeof(SecondaryFirmwareConfig) - sizeof(secondaryConfig.crc));
-
+    
+    // Заполнение адресов ячеек - первые 2 для основной/резервной, остальные для вторичных контроллеров
+    secondaryConfig.cells[0].cell_address = SPI_FLASH_MAIN_FW_ADDRESS;
+    secondaryConfig.cells[0].metadata.key_start = 0; // Пустая ячейка
+    
+    secondaryConfig.cells[1].cell_address = SPI_FLASH_BACKUP_FW_ADDRESS;
+    secondaryConfig.cells[1].metadata.key_start = 0; // Пустая ячейка
+    
+    // Остальные ячейки для вторичных контроллеров (не используются в этом проекте)
+    secondaryConfig.cells[2].cell_address = SPI_FIRMWARE_S1_ADDRESS;
+    secondaryConfig.cells[3].cell_address = SPI_FIRMWARE_S2_ADDRESS;
+    secondaryConfig.cells[4].cell_address = SPI_FIRMWARE_S3_ADDRESS;
+    secondaryConfig.cells[5].cell_address = SPI_FIRMWARE_S4_ADDRESS;
+    
+    secondaryConfig.active_cell = 0; // Основная прошивка по умолчанию
+    
     SetSecondaryFirmwareConfig(&secondaryConfig);
+    STM_LOG("Firmware config reset to defaults");
 }
+
+#if 0
+// Функции для работы с вторичными контроллерами - закомментированы
 #endif // Конец блока функций для вторичных контроллеров

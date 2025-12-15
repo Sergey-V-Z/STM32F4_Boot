@@ -21,6 +21,7 @@ extern "C" {
 /* PWM Configuration */
 #define PWM_FREQUENCY_HZ        1000        // 1 kHz PWM frequency
 #define PWM_MAX_VALUE          1000         // 0-1000 range (0.1% resolution)
+#define PWM_PERIOD             999          // Timer ARR value (Period-1)
 #define PWM_TIMER_CLOCK        84000000     // 84 MHz (APB2 for TIM1, APB1*2 for TIM4)
 
 /* Channel mapping to timer outputs */

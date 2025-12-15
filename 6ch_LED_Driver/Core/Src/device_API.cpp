@@ -22,6 +22,7 @@ using namespace std;
 /*variables ---------------------------------------------------------*/
 extern settings_t settings;
 extern flash mem_spi;
+extern float g_current_amperes;  // Ток с датчика ACS712 в амперах
 
 /* Typedef -----------------------------------------------------------*/
 struct mesage_t
@@ -449,6 +450,17 @@ string Сommand_execution(string in_str)
 			case 18:
 			{
 				arr_cmd[i].err = "Not available";
+				break;
+			}
+			// Read current from ACS712 sensor
+			case 19:
+			{
+				// Преобразуем float в uint32_t (умножаем на 1000 для передачи с точностью до миллиампер)
+				// Например: 5.234A -> 5234
+				int32_t current_ma = (int32_t)(g_current_amperes * 1000.0f);
+				arr_cmd[i].data_out = (uint32_t)current_ma;
+				arr_cmd[i].need_resp = true;
+				arr_cmd[i].err = "OK";
 				break;
 			}
 			default:

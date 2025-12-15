@@ -275,15 +275,17 @@ uint8_t FirmwareUpdate_StartBackupUpdate(meta_t *metadata, FWUpdateParams *updat
 void DumpFirmwareHex(flash* spiFlash, uint32_t startAddress, uint32_t length, uint8_t bytesPerLine, uint32_t delayMs);
 void FirmwareUpdate_PrintMetadata(void);
 
+// Функции для работы с конфигурацией прошивок (основная/резервная)
+uint8_t GetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config);
+uint8_t SetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config);
+void ResetSecondaryFirmwareConfig(void);
+
 // Функции для обновления прошивок вторичных контроллеров - больше не используются
 /*
 // Функция старта сохранения вторичной платы
 uint8_t FirmwareUpdate_StartSecondaryUpdate(meta_t *metadata, FWUpdateParams *update_params);
 uint32_t FirmwareUpdate_FindSectorForSecondaryFirmware(meta_t *metadata);
 uint8_t FirmwareUpdate_GetSecondaryMetaData(uint32_t sectorAddress, meta_t* metadata);
-uint8_t SetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config);
-uint8_t GetSecondaryFirmwareConfig(SecondaryFirmwareConfig *config);
-void ResetSecondaryFirmwareConfig(void);
 uint8_t TransferFirmwareToSecondaryBoard(DEV_t *dev, FirmwareUpdateCellState cell);
 
 // api работы со вторичными платами
