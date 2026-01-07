@@ -22,7 +22,7 @@
 #define W25_BLOCK_ERASE       0xD8
 #define W25_FAST_READ         0x0B
 #define W25_PAGE_PROGRAMM     0x02
-#define W25_GET_JEDEC_ID      0x9F
+#define W25_GET_JEDEC_ID      0x9F  // Read Manufacturer/Device ID (JEDEC ID): возвращает 3 байта [Mfr][Type][Capacity]
 #define W25_READ_STATUS_1     0x05
 #define W25_READ_STATUS_2     0x35
 #define W25_READ_STATUS_3     0x15

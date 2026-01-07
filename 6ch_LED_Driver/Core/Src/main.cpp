@@ -72,6 +72,7 @@ led_t LED_OSstart;
 flash mem_spi;
 
 bool resetSettings = false;
+bool resetFlash = false;
 
 // for SPI Flash
 pins_spi_t ChipSelect = {SPI3_CS_GPIO_Port, SPI3_CS_Pin};
@@ -162,6 +163,13 @@ int main(void)
 
     mem_spi.Init(&hspi3, SPI_FLASH_CONFIG_ADDRESS, ChipSelect, WriteProtect, Hold, false);
     // HAL_Delay(100);
+    if(resetFlash)
+    {
+      STM_LOG("Flash reset");
+      mem_spi.W25qxx_EraseChip();
+      resetFlash = false;
+      STM_LOG("Flash reset done");
+    }
     mem_spi.Read(&settings);
 
     HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET); // PC15 VD4

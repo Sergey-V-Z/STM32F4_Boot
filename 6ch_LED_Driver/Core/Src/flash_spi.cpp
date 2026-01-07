@@ -74,15 +74,25 @@ uint32_t flash :: W25qxx_ReadID(void)
    
    W25QFLASH_CS_SELECT;
    
-   W25qxx_Spi(W25_GET_JEDEC_ID);
+   W25qxx_Spi(W25_GET_JEDEC_ID);  // Command 0x9F - Read JEDEC ID
    
-   Temp0 = W25qxx_Spi(W25QXX_DUMMY_BYTE);
-   Temp1 = W25qxx_Spi(W25QXX_DUMMY_BYTE);
-   Temp2 = W25qxx_Spi(W25QXX_DUMMY_BYTE);
+   // JEDEC ID Format (3 bytes):
+   // Byte 1: Manufacturer ID (0xEF for Winbond)
+   // Byte 2: Memory Type (высший байт Device ID)
+   // Byte 3: Capacity (младший байт Device ID)
+   Temp0 = W25qxx_Spi(W25QXX_DUMMY_BYTE);  // Manufacturer ID
+   Temp1 = W25qxx_Spi(W25QXX_DUMMY_BYTE);  // Memory Type
+   Temp2 = W25qxx_Spi(W25QXX_DUMMY_BYTE);  // Capacity
    
    W25QFLASH_CS_UNSELECT;
    
+   // Собираем полный JEDEC ID: [Manufacturer][MemoryType][Capacity]
    Temp = (Temp0 << 16) | (Temp1 << 8) | Temp2;
+   
+#if (INIT_DEBUG == 1)
+   snprintf(buff, 64, "JEDEC ID: MFR=0x%02lX, Type=0x%02lX, Cap=0x%02lX\n", Temp0, Temp1, Temp2);
+   // HAL_UART_Transmit(DEBUG_UART, (uint8_t*)buff, strlen(buff), 1000);
+#endif
    
    return Temp;
 }
@@ -221,13 +231,39 @@ uint8_t flash :: Init(SPI_HandleTypeDef *hspi, uint32_t startAddr,  pins_spi_t C
    id = W25qxx_ReadID();
    
 #if (INIT_DEBUG == 1)
-   snprintf(buff, 64, "ID:0x%lX\n", id);
+   snprintf(buff, 64, "Full JEDEC ID: 0x%06lX\n", id);
   // HAL_UART_Transmit(DEBUG_UART, (uint8_t*)buff, strlen(buff), 1000);
 #endif
    
+   // Проверка Manufacturer ID (должен быть 0xEF для Winbond)
+   uint8_t manufacturer = (id >> 16) & 0xFF;
+   uint8_t memoryType = (id >> 8) & 0xFF;
+   uint8_t capacity = id & 0xFF;
+   
+   if(manufacturer != 0xEF)
+   {
+#if (INIT_DEBUG == 1)
+      snprintf(buff, 64, "Warning: Unknown manufacturer 0x%02X (expected 0xEF for Winbond)\n", manufacturer);
+      // HAL_UART_Transmit(DEBUG_UART, (uint8_t*)buff, strlen(buff), 1000);
+#endif
+   }
+   
+   // Проверка Memory Type (стандартные значения: 0x40 для W25Q, 0x30 для W25X)
+   if(memoryType != 0x40 && memoryType != 0x30)
+   {
+#if (INIT_DEBUG == 1)
+      snprintf(buff, 64, "Info: Non-standard Memory Type 0x%02X (expected 0x40 or 0x30)\n", memoryType);
+      // HAL_UART_Transmit(DEBUG_UART, (uint8_t*)buff, strlen(buff), 1000);
+#endif
+   }
+   
+   // Проверяем Device ID (младшие 2 байта: Memory Type + Capacity)
+   // Формат: 0x40XX для W25Q серии (Quad SPI)
+   // Формат: 0x30XX для W25X серии (старая серия)
+   // где XX - код емкости (0x1A=512Mb, 0x19=256Mb, 0x18=128Mb, 0x17=64Mb, и т.д.)
    switch(id & 0x0000FFFF)
    {
-     case 0x401A:	// 	w25q512
+     case 0x401A:	// w25q512 (0xEF + 0x40 + 0x1A)
       w25qxx.ID = W25Q512;
       w25qxx.BlockCount = 1024;
 #if (INIT_DEBUG == 1)
@@ -248,6 +284,14 @@ uint8_t flash :: Init(SPI_HandleTypeDef *hspi, uint32_t startAddr,  pins_spi_t C
       w25qxx.BlockCount = 256;
 #if (INIT_DEBUG == 1)
      // HAL_UART_Transmit(DEBUG_UART, (uint8_t*)"Chip: w25q128\n", 14, 1000);
+#endif
+      break;
+      
+     case 0x7018:	// w25q128 (клон или альтернативная модификация с Memory Type 0x70)
+      w25qxx.ID = W25Q128;
+      w25qxx.BlockCount = 256;
+#if (INIT_DEBUG == 1)
+     // HAL_UART_Transmit(DEBUG_UART, (uint8_t*)"Chip: w25q128 (non-standard Memory Type 0x70)\n", 47, 1000);
 #endif
       break;
       
