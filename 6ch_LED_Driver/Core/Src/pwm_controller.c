@@ -79,9 +79,10 @@ static void PWM_UpdateChannel(PWM_Channel_t channel)
         value = PWM_MAX_VALUE;
     }
     
-    // Scale value from 0-1000 to 0-999 (timer period)
-    // value / 1000 * 999 = value * 999 / 1000
-    uint16_t compare_value = (uint16_t)((uint32_t)value * PWM_PERIOD / PWM_MAX_VALUE);
+    // Scale value from 0-1000 to 0-1000 (CCR value)
+    // For 100% duty cycle (value=1000), CCR must be > ARR (999)
+    // So CCR = 1000 gives constant HIGH output
+    uint16_t compare_value = value;
 
     // Map channel to timer and channel
     switch (channel) {

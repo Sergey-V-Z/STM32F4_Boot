@@ -1,9 +1,0 @@
-../Core/Src/LED.cpp:4:6:void led::poll()	16	static
-../Core/Src/LED.cpp:76:6:void led::Init(GPIO_TypeDef*, uint16_t)	24	static
-../Core/Src/LED.cpp:83:6:void led::LEDon()	16	static
-../Core/Src/LED.cpp:87:6:void led::LEDon(uint32_t)	16	static
-../Core/Src/LED.cpp:93:6:void led::LEDoff()	16	static
-../Core/Src/LED.cpp:97:6:void led::setParameters(mode, uint32_t, uint32_t)	24	static
-../Core/Src/LED.cpp:103:6:void led::setParameters(mode)	16	static
-../Core/Src/LED.cpp:107:1:led::led()	16	static
-../Core/Src/LED.cpp:111:1:led::~led()	16	static

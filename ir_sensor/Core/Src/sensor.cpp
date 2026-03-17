@@ -8,7 +8,12 @@ extern osSemaphoreId setMutexHandle;
 
 void sensor :: Init(settings_t *set, osSemaphoreId *ADC_endHandle, ADC_HandleTypeDef *hadc, uint16_t *adc_buffer, uint16_t depth)
 {
+	// проверка параметров
 	if(set == nullptr) Error_Handler();
+	if(ADC_endHandle == nullptr) Error_Handler();
+	if(hadc == nullptr) Error_Handler();
+	if(adc_buffer == nullptr) Error_Handler();
+
 	p_settings = set;
 	p_settings->sensorSett.sensorType = Optic;
 	this->ADC_endHandle = ADC_endHandle;

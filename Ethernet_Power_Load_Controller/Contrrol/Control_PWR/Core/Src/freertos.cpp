@@ -66,6 +66,9 @@ uint16_t sensBuff[8] = {0};
 uint8_t sensState = 255; // битовое поле
 extern bool rx_end;
 
+// Количество найденных устройств (обновляется при автопоиске)
+uint32_t pcs_dev = 0;
+
 uint16_t transaction_id;
 
 uint32_t freqSens = HAL_RCC_GetHCLKFreq() / 30000u;
@@ -85,8 +88,12 @@ void action_ip(cJSON *obj, bool save);
 void action_ch_set(cJSON *obj);
 void action_cmd(cJSON *obj);
 void action_settings_data(cJSON *obj);
+void action_channels_data(cJSON *obj);
 void action_bridge(cJSON *obj, bool save);
 void action_bridge_data(cJSON *obj);
+
+// Функция автоматического поиска и инициализации устройств
+void devices_auto_discover_and_init();
 // структуры для netcon
 extern struct netif gnetif;
 
@@ -263,6 +270,49 @@ void MX_FREERTOS_Init(void)
 	/* USER CODE END RTOS_THREADS */
 }
 
+//=============================================================================
+// Функция автоматического поиска и инициализации устройств
+//=============================================================================
+
+// Автоматический поиск и инициализация устройств при старте
+void devices_auto_discover_and_init() {
+    STM_LOG("=== Device Auto-Discovery Start ===");
+    
+    // Выполняем поиск устройств через UART
+    uint32_t found_count = auto_search_dev(devices, MAX_ADR_DEV);
+    pcs_dev = found_count; // Обновляем глобальную переменную
+    STM_LOG("Found %u devices via UART", found_count);
+    
+    // Выводим информацию о найденных устройствах
+    for (uint32_t i = 0; i < found_count && i < MAX_ADR_DEV; i++) {
+        const char* type_name = "Unknown";
+        if (devices[i].TypePCB == LED_DRV) type_name = "LED_DRV";
+        else if (devices[i].TypePCB == PWR_LOAD) type_name = "PWR_LOAD";
+        
+        STM_LOG("  Device %u: Addr=%u, Type=%s", i, devices[i].Addr, type_name);
+    }
+    
+    // Создаем привязку каналов (NameCH[])
+    osMutexWait(varMutexDevicesHandle, osWaitForever);
+    
+    for (uint32_t var = 0; var < found_count; ++var) {
+        if ((devices[var].Addr >= START_ADR_DEV) && 
+            (devices[var].Addr <= (START_ADR_DEV + MAX_ADR_DEV))) {
+            
+            for (int i = 0; i < 3; ++i) {
+                NameCH[devices[var].ch[i].Name_ch].dev = &devices[var];
+                NameCH[devices[var].ch[i].Name_ch].Channel_number = i;
+            }
+        }
+    }
+    
+    osMutexRelease(varMutexDevicesHandle);
+    
+    STM_LOG("=== Device Auto-Discovery Complete ===");
+}
+
+//=============================================================================
+
 /* USER CODE BEGIN Header_mainTask */
 /**
  * @brief  Function implementing the MainTask thread.
@@ -313,25 +363,10 @@ void mainTask(void const *argument)
 	HAL_UARTEx_ReceiveToIdle_DMA(&huart1, UART_rx, UART_RX_LENGTH);
 	__HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
 
-	uint32_t pcs_dev = auto_search_dev(devices, MAX_ADR_DEV);
+	// Автоматический поиск и инициализация устройств
+	// Функция сама выполнит: поиск → загрузку из флеш → сравнение → сохранение при необходимости
+	devices_auto_discover_and_init();
 
-	// выполнить связывание
-	osMutexWait(varMutexDevicesHandle, osWaitForever);
-
-	for (int var = 0; var <= pcs_dev; ++var)
-	{
-		// check device address
-		if ((devices[var].Addr >= START_ADR_DEV) && (devices[var].Addr <= (START_ADR_DEV + MAX_ADR_DEV)))
-		{
-			for (int i = 0; i < 3; ++i)
-			{
-				NameCH[devices[var].ch[i].Name_ch].dev = &devices[var];
-				NameCH[devices[var].ch[i].Name_ch].Channel_number = i;
-			}
-		}
-	}
-
-	osMutexRelease(varMutexDevicesHandle);
 	/* Infinite loop */
 	for (;;)
 	{
@@ -777,6 +812,11 @@ void uart_Task(void const *argument)
 					{
 						action_settings_data(obj);
 						// STM_LOG("Empty type_data num");
+						break;
+					}
+					case 7: // Запрос данных каналов с пагинацией
+					{
+						action_channels_data(obj);
 						break;
 					}
 					case 5:
@@ -1228,10 +1268,12 @@ void action_cmd(cJSON *obj)
 		int addres = cJSON_GetNumberValue(Addr_start);
 		int count = cJSON_GetNumberValue(Count_dev);
 
-		// автопоиск
-		uint32_t pcs_dev = auto_search_dev(devices, MAX_ADR_DEV);
-		// setRange_i2c_dev(addres, count);
+		STM_LOG("Manual device auto-fill triggered");
+		
+		// Выполняем автопоиск и инициализацию через новую систему
+		devices_auto_discover_and_init();
 
+		// Сохраняем основные настройки
 		if (mem_spi.Write(settings))
 		{
 			STM_LOG("Save settings OK. size %d", sizeof(settings_t));
@@ -1392,33 +1434,26 @@ void action_settings_data(cJSON *obj)
 		cJSON_AddFalseToObject(obj_ip, "DHCP");
 	}
 
-	/* убрал отправку данных о каналах так как занимает много мести. восможно стоит вернуть в бинарном формате
-	// настройки каналов
+	// Подсчитываем количество активных каналов (без отправки данных)
+	int active_channels = 0;
 	for (int name = 0; name < MAX_CH_NAME; ++name) {
-
 		if (NameCH[name].dev != NULL) {
-			cJSON *temp_obj = cJSON_CreateObject();
-
-			uint8_t c = NameCH[name].Channel_number; // get channel number for this name
-
-			cJSON_AddNumberToObject(temp_obj, "num", NameCH[name].dev->ch[c].Name_ch);
-			cJSON_AddNumberToObject(temp_obj, "dev_addr", NameCH[name].dev->Addr);
-			cJSON_AddNumberToObject(temp_obj, "ch_dev", NameCH[name].Channel_number);
-			cJSON_AddNumberToObject(temp_obj, "PWM", NameCH[name].dev->ch[c].PWM_out);
-
-			cJSON_AddItemToArray(obj_ch, temp_obj);
-
-			//cJSON_Delete(temp_obj);
+			active_channels++;
 		} else {
-			//STM_LOG("Error id_cmd");
-			break;
+			break; // первый пустой канал означает конец списка
 		}
 	}
 
-	// отрпавка на хост
-	cJSON_AddItemToObject(j_all_settings_obj, "obj_ch", obj_ch);
-	*/
-
+	// Создаем объект с метаданными о каналах (вместо отправки всех данных)
+	cJSON *obj_ch_meta = cJSON_CreateObject();
+	cJSON_AddNumberToObject(obj_ch_meta, "count", active_channels);
+	cJSON_AddNumberToObject(obj_ch_meta, "total", MAX_CH_NAME);
+	
+	// Добавляем метаданные каналов в основной объект
+	cJSON_AddItemToObject(j_all_settings_obj, "obj_ch_meta", obj_ch_meta);
+	
+	// Очищаем пустой массив obj_ch
+	cJSON_Delete(obj_ch);
 	cJSON_AddItemToObject(j_all_settings_obj, "obj_ip", obj_ip);
 
 	char *str_to_host = cJSON_Print(j_all_settings_obj);
@@ -1464,6 +1499,95 @@ void action_settings_data(cJSON *obj)
 	// cJSON_Delete(obj_ch);
 	// cJSON_Delete(obj_ip);
 	cJSON_Delete(j_all_settings_obj);
+}
+
+// Подготовка и отправка данных о каналах на хост (type_data=7)
+void action_channels_data(cJSON *obj)
+{
+	// Получаем параметры пагинации из запроса
+	cJSON *j_offset = cJSON_GetObjectItemCaseSensitive(obj, "offset");
+	cJSON *j_limit = cJSON_GetObjectItemCaseSensitive(obj, "limit");
+	
+	int offset = (j_offset && cJSON_IsNumber(j_offset)) ? j_offset->valueint : 0;
+	int limit = (j_limit && cJSON_IsNumber(j_limit)) ? j_limit->valueint : MAX_CH_NAME;
+	
+	// Ограничиваем размер порции для избежания переполнения буфера
+	if (limit > 20) limit = 20; // Максимум 20 каналов за раз
+	if (offset < 0) offset = 0;
+	if (offset >= MAX_CH_NAME) offset = MAX_CH_NAME - 1;
+	
+	cJSON *j_response = cJSON_CreateObject();
+	cJSON *obj_ch = cJSON_CreateArray();
+	
+	cJSON_AddNumberToObject(j_response, "id", ID_CTRL);
+	cJSON_AddStringToObject(j_response, "name_device", NAME);
+	cJSON_AddNumberToObject(j_response, "type_data", 7);
+	
+	int sent_count = 0;
+	int end_index = offset + limit;
+	if (end_index > MAX_CH_NAME) end_index = MAX_CH_NAME;
+	
+	// Формируем данные каналов для запрошенного диапазона
+	for (int name = offset; name < end_index && sent_count < limit; ++name) {
+		if (NameCH[name].dev != NULL) {
+			cJSON *temp_obj = cJSON_CreateObject();
+			uint8_t c = NameCH[name].Channel_number;
+			
+			cJSON_AddNumberToObject(temp_obj, "num", name);
+			cJSON_AddNumberToObject(temp_obj, "addr", NameCH[name].dev->Addr);
+			cJSON_AddNumberToObject(temp_obj, "ch", c);
+			cJSON_AddNumberToObject(temp_obj, "pwm", NameCH[name].dev->ch[c].PWM_out);
+			
+			if (NameCH[name].dev->ch[c].On_off) {
+				cJSON_AddTrueToObject(temp_obj, "enabled");
+			} else {
+				cJSON_AddFalseToObject(temp_obj, "enabled");
+			}
+			
+			cJSON_AddItemToArray(obj_ch, temp_obj);
+			sent_count++;
+		} else {
+			break; // Первый пустой канал - конец активных каналов
+		}
+	}
+	
+	// Добавляем информацию о пагинации
+	cJSON_AddNumberToObject(j_response, "offset", offset);
+	cJSON_AddNumberToObject(j_response, "limit", limit);
+	cJSON_AddNumberToObject(j_response, "count", sent_count);
+	cJSON_AddBoolToObject(j_response, "has_more", (offset + sent_count) < MAX_CH_NAME && NameCH[offset + sent_count].dev != NULL);
+	
+	cJSON_AddItemToObject(j_response, "obj_ch", obj_ch);
+	
+	char *str_to_host = cJSON_Print(j_response);
+	
+	// Проверяем размер и отправляем
+	size_t total_len = strlen(str_to_host);
+	const size_t chunk_size = MAX_MESSAGE_SIZE - 3;
+	
+	if (total_len <= chunk_size)
+	{
+		STM_LOG_xx("%s", str_to_host);
+		STM_LOG_xx("\x03\x04"); // ETX + EOT
+	}
+	else
+	{
+		// Отправляем частями если все же превышает буфер
+		size_t offset_send = 0;
+		while (offset_send < total_len)
+		{
+			size_t current_chunk_size = (total_len - offset_send > chunk_size) ? chunk_size : (total_len - offset_send);
+			char saved_char = str_to_host[offset_send + current_chunk_size];
+			str_to_host[offset_send + current_chunk_size] = '\0';
+			STM_LOG_xx("%s", str_to_host + offset_send);
+			str_to_host[offset_send + current_chunk_size] = saved_char;
+			offset_send += current_chunk_size;
+		}
+		STM_LOG_xx("\x03\x04");
+	}
+	
+	cJSON_free(str_to_host);
+	cJSON_Delete(j_response);
 }
 
 // Получение данных моста с хоста

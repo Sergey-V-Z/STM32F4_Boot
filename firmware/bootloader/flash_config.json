@@ -1,0 +1,21 @@
+{
+  "device_type": "Bootloader",
+  "device_id": 0,
+  "description": "STM32F4 Universal Bootloader",
+  "mcu": "STM32F407VG",
+  "flash_layout": {
+    "bootloader": {
+      "file": "bootloader.bin",
+      "address": "0x08000000",
+      "size": "0xC000",
+      "description": "Bootloader code (48KB)"
+    }
+  },
+  "memory_map": {
+    "flash_start": "0x08000000",
+    "flash_size": "512K",
+    "bootloader_region": "0x08000000-0x0800BFFF",
+    "boot_data_region": "0x0800C000-0x0800FFFF",
+    "application_region": "0x08010000-0x0807FFFF"
+  }
+}

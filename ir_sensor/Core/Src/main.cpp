@@ -169,7 +169,7 @@ int main(void)
   HAL_GPIO_WritePin(eth_RST_GPIO_Port, eth_RST_Pin, GPIO_PIN_SET);
 
   // работаем с настройками из флешки
-  if ((settings.version == 0) | (settings.version == 0xFF) | (settings.version != CURENT_VERSION) | resetSettings)
+  if ((settings.version == 0) || (settings.version == 0xFF) || (settings.version != CURENT_VERSION) || resetSettings)
   {
     STM_LOG("Reset settings");
 
@@ -356,6 +356,17 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       // Ожидаем завершения передачи
     };
 
+    // Проверка на корректность Size и Start_index
+    if (Size < Start_index) {
+      // Ошибка: Size меньше Start_index - сбрасываем состояние
+      STM_LOG("UART RX error: Size=%d < Start_index=%d, resetting", Size, Start_index);
+      indx_message_rx = 0;
+      Start_index = 0;
+      HAL_UARTEx_ReceiveToIdle_DMA(huart, UART_debug_rx, UART6_RX_LENGTH);
+      __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT);
+      return;
+    }
+
     uint16_t Size_Data = Size - Start_index;
 
     HAL_UART_RxEventTypeTypeDef rxEventType;
@@ -363,6 +374,15 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     switch (rxEventType)
     {
     case HAL_UART_RXEVENT_IDLE:
+      // Проверка границ буфера (нужно место для данных + null-terminator)
+      if (indx_message_rx + Size_Data + 1 > message_RX_LENGTH) {
+        // Переполнение буфера - сбрасываем
+        STM_LOG("UART RX buffer overflow! indx=%d Size=%d", indx_message_rx, Size_Data);
+        indx_message_rx = 0;
+        Start_index = Size;
+        break;
+      }
+      
       // Копируем данные
       memcpy(&message_rx[indx_message_rx], &UART_debug_rx[Start_index], Size_Data);
 
@@ -398,6 +418,16 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
       break;
 
     case HAL_UART_RXEVENT_TC:
+      // Проверка границ буфера
+      if (indx_message_rx + Size_Data > message_RX_LENGTH) {
+        // Переполнение буфера - логируем и сбрасываем
+        STM_LOG("UART RX buffer overflow TC! indx=%d Size=%d Total=%d", indx_message_rx, Size_Data, indx_message_rx + Size_Data);
+        STM_LOG("Buffer content (first 100 chars): %.100s", message_rx);
+        indx_message_rx = 0;
+        Start_index = 0;
+        break;
+      }
+      
       // Копируем в начало буфера
       memcpy(&message_rx[indx_message_rx], &UART_debug_rx[Start_index], Size_Data);
       indx_message_rx += Size_Data;

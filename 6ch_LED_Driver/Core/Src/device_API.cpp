@@ -23,6 +23,10 @@ using namespace std;
 extern settings_t settings;
 extern flash mem_spi;
 extern float g_current_amperes;  // Ток с датчика ACS712 в амперах
+extern float g_current_zero_offset;  // Калибровочное смещение нуля
+
+// Функции для работы с ACS712 (определены в freertos.cpp)
+void ACS712_CalibrateZero(void);
 
 /* Typedef -----------------------------------------------------------*/
 struct mesage_t
@@ -34,6 +38,8 @@ struct mesage_t
 	bool need_resp = false;
 	bool data_in_is;
 	uint32_t data_out;
+	int32_t data_out_signed;  // Для знаковых значений (например, ток)
+	bool use_signed = false;  // Флаг использования знакового значения
 	string err;			 // сообщение клиенту об ошибке в сообщении
 	bool f_bool = false; // наличие ошибки в сообшении
 };
@@ -455,12 +461,50 @@ string Сommand_execution(string in_str)
 			// Read current from ACS712 sensor
 			case 19:
 			{
-				// Преобразуем float в uint32_t (умножаем на 1000 для передачи с точностью до миллиампер)
-				// Например: 5.234A -> 5234
+				// Преобразуем float в int32_t (умножаем на 1000 для передачи с точностью до миллиампер)
+				// Например: 5.234A -> 5234, -0.234A -> -234
 				int32_t current_ma = (int32_t)(g_current_amperes * 1000.0f);
-				arr_cmd[i].data_out = (uint32_t)current_ma;
+				arr_cmd[i].data_out_signed = current_ma;
+				arr_cmd[i].use_signed = true;
 				arr_cmd[i].need_resp = true;
 				arr_cmd[i].err = "OK";
+				break;
+			}
+			// Calibrate current sensor zero point
+			case 20:
+			{
+				if (arr_cmd[i].addres_var == 0)
+				{
+					// A=0: Выполнить калибровку нуля
+					ACS712_CalibrateZero();
+					// Возвращаем смещение в мА
+					int32_t offset_ma = (int32_t)(g_current_zero_offset * 1000.0f);
+					arr_cmd[i].data_out_signed = offset_ma;
+					arr_cmd[i].use_signed = true;
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				else if (arr_cmd[i].addres_var == 1)
+				{
+					// A=1: Чтение текущего смещения
+					int32_t offset_ma = (int32_t)(g_current_zero_offset * 1000.0f);
+					arr_cmd[i].data_out_signed = offset_ma;
+					arr_cmd[i].use_signed = true;
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				else if (arr_cmd[i].addres_var == 2)
+				{
+					// A=2: Сброс калибровки
+					g_current_zero_offset = 0.0f;
+					arr_cmd[i].need_resp = false;
+					arr_cmd[i].err = "OK";
+				}
+				else
+				{
+					arr_cmd[i].err = "Invalid address";
+					arr_cmd[i].f_bool = true;
+				}
 				break;
 			}
 			default:
@@ -485,7 +529,15 @@ string Сommand_execution(string in_str)
 				resp.append(f_cmd + to_string(arr_cmd[i].cmd));
 				if (arr_cmd[i].need_resp)
 				{
-					resp.append(f_datd + to_string(arr_cmd[i].data_out));
+					// Используем знаковое или беззнаковое значение в зависимости от флага
+					if (arr_cmd[i].use_signed)
+					{
+						resp.append(f_datd + to_string(arr_cmd[i].data_out_signed));
+					}
+					else
+					{
+						resp.append(f_datd + to_string(arr_cmd[i].data_out));
+					}
 				}
 				else
 				{

@@ -85,7 +85,7 @@ extern SPI_HandleTypeDef hspi3;
 
 #define CURENT_VERSION 46
 #define ID_CTRL 1
-#define NAME "pwr controller"
+#define NAME FIRMWARE_NAME
 #define LWIP_DHCP 1
 
 #define UART6_RX_LENGTH 512

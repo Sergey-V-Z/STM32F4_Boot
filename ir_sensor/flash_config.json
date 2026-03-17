@@ -1,0 +1,27 @@
+{
+    "device_name": "ir_sensor",
+    "chip": "STM32F407VG",
+    "memory_regions": [
+        {
+            "name": "bootloader",
+            "start_address": "0x08000000",
+            "size": 49152,
+            "type": "bootloader",
+            "description": "Bootloader region (48 KB)"
+        },
+        {
+            "name": "boot_data",
+            "start_address": "0x0800C000",
+            "size": 16384,
+            "type": "data",
+            "description": "Boot data region (16 KB)"
+        },
+        {
+            "name": "application",
+            "start_address": "0x08010000",
+            "size": 458752,
+            "type": "application",
+            "description": "Application region (448 KB)"
+        }
+    ]
+}

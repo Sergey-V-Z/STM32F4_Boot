@@ -42,7 +42,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000016 // Версия
+#define FIRMWARE_VERSION    0x00000017 // Версия
 #define FIRMWARE_NAME       "6ch_LED_Driver"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
 
@@ -79,8 +79,8 @@ extern TIM_HandleTypeDef htim4;
 #define DBG_PORT_NAME USART6
 
 #define CURENT_VERSION 46
-#define ID_CTRL 1
-#define NAME "pwr controller"
+#define ID_CTRL 4
+#define NAME FIRMWARE_NAME
 #define LWIP_DHCP 1
 
 #define UART6_RX_LENGTH 512
@@ -163,6 +163,14 @@ uint16_t usMBCRC16(uint8_t *pucFrame, uint16_t usLen);
 
 #define MAX_CELLS 6
 
+typedef enum {
+	NoInit = 0,
+	LED_DRV = 10,
+    LED_DRV_v2 = 11,
+	PCB_PWR = 20,
+	MOSFET_6CH = 30,
+}PCBType;
+
 typedef enum cmd_t
 {
 	data = 0,
@@ -227,6 +235,21 @@ typedef struct {
   	uint8_t name_proj[140]; // название проекта или устройства
 } Firmware_data_t;
 
+typedef enum {
+	MODE_NON = 0x00000000,
+	MODE_BOOTLOADER = 0x00000001,
+	MODE_APP = 0x00000002
+} secondary_mode_t;
+
+typedef struct{
+  uint32_t key; 			// ключ
+  uint32_t type_pcb;    	// тип платы
+  uint32_t count_ch;   		// количество каналов
+  s_status_flash_t status; 	// статус
+  secondary_mode_t mode; 	// режим 2 значит мы в приложении 1 значит в загрузчике
+  uint32_t reserved; 		// зарезервировано
+} secondary_status_t;
+
 typedef struct
 {
 	uint8_t 	ip[4];// = {192, 168, 0, 2};
@@ -246,6 +269,20 @@ typedef struct
 	uint8_t version;
 }settings_t;
 #pragma pack(pop)
+
+// Структура для калибровочных данных (сохраняется отдельно от settings_t)
+#pragma pack(push, 1)
+typedef struct
+{
+	uint32_t magic_key;           // Магическое число для проверки валидности (0xCAFEBABE)
+	float current_zero_offset;    // Калибровочное смещение нуля (в амперах)
+	uint32_t reserved1;           // Резерв для будущих калибровок
+	uint32_t reserved2;           // Резерв
+	uint32_t crc;                 // CRC структуры
+}calibration_t;
+#pragma pack(pop)
+
+#define CALIBRATION_MAGIC 0xCAFEBABE  // Магическое число для калибровки
 
 // Структура для передачи параметров обновления прошивки
 typedef struct {

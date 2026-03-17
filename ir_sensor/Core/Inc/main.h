@@ -42,7 +42,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000001 // Версия
+#define FIRMWARE_VERSION    0x00000002 // Версия
 #define FIRMWARE_NAME       "IR Sensor"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
 
@@ -76,11 +76,11 @@ extern SPI_HandleTypeDef hspi3;
 //#define LOG_TX_BUF_SIZE 1024*4
 
 #define CURENT_VERSION 47
-#define ID_CTRL 1
-#define NAME "pwr controller"
+#define ID_CTRL 5
+#define NAME FIRMWARE_NAME
 #define LWIP_DHCP 1
 
-#define UART6_RX_LENGTH 512
+#define UART6_RX_LENGTH 1024  // Увеличен для приема больших JSON пакетов от settings_tool
 #define message_RX_LENGTH 512
 
 #define LOG_ERR "Err: "      // Вместо "Error: "

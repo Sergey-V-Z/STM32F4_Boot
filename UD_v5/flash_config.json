@@ -1,0 +1,39 @@
+{
+  "device_type": "UD_v5",
+  "device_id": 2,
+  "description": "Universal Device v5",
+  "mcu": "STM32F407VG",
+  "flash_layout": {
+    "bootloader": {
+      "file": "bootloader.bin",
+      "address": "0x08000000",
+      "size": "0xC000",
+      "description": "Bootloader code (48KB)",
+      "source": "../bootloader/Debug/bootloader.bin"
+    },
+    "boot_data": {
+      "file": "boot_data.bin",
+      "address": "0x0800C000",
+      "size": "0x4000",
+      "description": "Boot configuration data (16KB)",
+      "optional": true
+    },
+    "application": {
+      "file": "UD_v5.bin",
+      "address": "0x08010000",
+      "size": "0x70000",
+      "description": "Main application (448KB)",
+      "source": "Debug/UD_v5.bin"
+    }
+  },
+  "memory_map": {
+    "flash_start": "0x08000000",
+    "flash_size": "512K",
+    "ram_start": "0x20000000",
+    "ram_size": "128K",
+    "ccmram_start": "0x10000000",
+    "ccmram_size": "64K"
+  },
+  "verify_after_flash": true,
+  "reset_after_flash": true
+}

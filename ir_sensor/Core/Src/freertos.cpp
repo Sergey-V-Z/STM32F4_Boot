@@ -135,18 +135,18 @@ osSemaphoreId ADC_endHandle;
 // extern "C"
 /* USER CODE END FunctionPrototypes */
 
-void MainTask(void const *argument);
-void eth_Task(void const *argument);
-void LedTask(void const *argument);
-void Debug_udp(void const *argument);
-void uart_Task(void const *argument);
-void LoggerTask(void const *argument);
+void MainTask(void const * argument);
+void eth_Task(void const * argument);
+void LedTask(void const * argument);
+void Debug_udp(void const * argument);
+void uart_Task(void const * argument);
+void LoggerTask(void const * argument);
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* GetIdleTaskMemory prototype (linked to static allocation support) */
-extern "C" void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize);
+extern "C" void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize );
 
 /* USER CODE BEGIN GET_IDLE_TASK_MEMORY */
 static StaticTask_t xIdleTaskTCBBuffer;
@@ -162,88 +162,88 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, StackTyp
 /* USER CODE END GET_IDLE_TASK_MEMORY */
 
 /**
- * @brief  FreeRTOS initialization
- * @param  None
- * @retval None
- */
-void MX_FREERTOS_Init(void)
-{
-    /* USER CODE BEGIN Init */
+  * @brief  FreeRTOS initialization
+  * @param  None
+  * @retval None
+  */
+void MX_FREERTOS_Init(void) {
+  /* USER CODE BEGIN Init */
 
-    /* USER CODE END Init */
-    /* Create the mutex(es) */
-    /* definition and creation of s2DistanceMutex */
-    osMutexDef(s2DistanceMutex);
-    s2DistanceMutexHandle = osMutexCreate(osMutex(s2DistanceMutex));
+  /* USER CODE END Init */
+  /* Create the mutex(es) */
+  /* definition and creation of s2DistanceMutex */
+  osMutexDef(s2DistanceMutex);
+  s2DistanceMutexHandle = osMutexCreate(osMutex(s2DistanceMutex));
 
-    /* definition and creation of mutexADC */
-    osMutexDef(mutexADC);
-    mutexADCHandle = osMutexCreate(osMutex(mutexADC));
+  /* definition and creation of mutexADC */
+  osMutexDef(mutexADC);
+  mutexADCHandle = osMutexCreate(osMutex(mutexADC));
 
-    /* definition and creation of s1DistanceMutex */
-    osMutexDef(s1DistanceMutex);
-    s1DistanceMutexHandle = osMutexCreate(osMutex(s1DistanceMutex));
+  /* definition and creation of s1DistanceMutex */
+  osMutexDef(s1DistanceMutex);
+  s1DistanceMutexHandle = osMutexCreate(osMutex(s1DistanceMutex));
 
-    /* definition and creation of setMutex */
-    osMutexDef(setMutex);
-    setMutexHandle = osMutexCreate(osMutex(setMutex));
+  /* definition and creation of setMutex */
+  osMutexDef(setMutex);
+  setMutexHandle = osMutexCreate(osMutex(setMutex));
 
-    /* USER CODE BEGIN RTOS_MUTEX */
+  /* USER CODE BEGIN RTOS_MUTEX */
     /* add mutexes, ... */
-    /* USER CODE END RTOS_MUTEX */
+  /* USER CODE END RTOS_MUTEX */
 
-    /* Create the semaphores(s) */
-    /* definition and creation of ADC_end */
-    osSemaphoreDef(ADC_end);
-    ADC_endHandle = osSemaphoreCreate(osSemaphore(ADC_end), 1);
+  /* Create the semaphores(s) */
+  /* definition and creation of ADC_end */
+  osSemaphoreDef(ADC_end);
+  ADC_endHandle = osSemaphoreCreate(osSemaphore(ADC_end), 1);
 
-    /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
 
     adcDataReadySemaphore = xSemaphoreCreateBinary();
     /* add semaphores, ... */
-    /* USER CODE END RTOS_SEMAPHORES */
+  /* USER CODE END RTOS_SEMAPHORES */
 
-    /* USER CODE BEGIN RTOS_TIMERS */
+  /* USER CODE BEGIN RTOS_TIMERS */
     /* start timers, add new ones, ... */
-    /* USER CODE END RTOS_TIMERS */
+  /* USER CODE END RTOS_TIMERS */
 
-    /* Create the queue(s) */
-    /* definition and creation of rxDataUART2 */
-    osMessageQDef(rxDataUART2, 16, uint8_t);
-    rxDataUART2Handle = osMessageCreate(osMessageQ(rxDataUART2), NULL);
+  /* Create the queue(s) */
+  /* definition and creation of rxDataUART2 */
+  osMessageQDef(rxDataUART2, 16, uint8_t);
+  rxDataUART2Handle = osMessageCreate(osMessageQ(rxDataUART2), NULL);
 
-    /* USER CODE BEGIN RTOS_QUEUES */
+  /* USER CODE BEGIN RTOS_QUEUES */
     /* add queues, ... */
-    /* USER CODE END RTOS_QUEUES */
+  /* USER CODE END RTOS_QUEUES */
 
-    /* Create the thread(s) */
-    /* definition and creation of mainTask */
-    osThreadDef(mainTask, MainTask, osPriorityNormal, 0, 512);
-    mainTaskHandle = osThreadCreate(osThread(mainTask), NULL);
+  /* Create the thread(s) */
+  /* definition and creation of mainTask */
+  osThreadDef(mainTask, MainTask, osPriorityNormal, 0, 512);
+  mainTaskHandle = osThreadCreate(osThread(mainTask), NULL);
 
-    /* definition and creation of ethTask */
-    osThreadDef(ethTask, eth_Task, osPriorityNormal, 0, 512);
-    ethTaskHandle = osThreadCreate(osThread(ethTask), NULL);
+  /* definition and creation of ethTask */
+  osThreadDef(ethTask, eth_Task, osPriorityNormal, 0, 512);
+  ethTaskHandle = osThreadCreate(osThread(ethTask), NULL);
 
-    /* definition and creation of ledTask */
-    osThreadDef(ledTask, LedTask, osPriorityNormal, 0, 512);
-    ledTaskHandle = osThreadCreate(osThread(ledTask), NULL);
+  /* definition and creation of ledTask */
+  osThreadDef(ledTask, LedTask, osPriorityNormal, 0, 512);
+  ledTaskHandle = osThreadCreate(osThread(ledTask), NULL);
 
-    /* definition and creation of debug_udp */
-    osThreadDef(debug_udp, Debug_udp, osPriorityNormal, 0, 512);
-    debug_udpHandle = osThreadCreate(osThread(debug_udp), NULL);
+  /* definition and creation of debug_udp */
+  osThreadDef(debug_udp, Debug_udp, osPriorityNormal, 0, 512);
+  debug_udpHandle = osThreadCreate(osThread(debug_udp), NULL);
 
-    /* definition and creation of uart_task */
-    osThreadDef(uart_task, uart_Task, osPriorityNormal, 0, 512);
-    uart_taskHandle = osThreadCreate(osThread(uart_task), NULL);
+  /* definition and creation of uart_task */
+  osThreadDef(uart_task, uart_Task, osPriorityNormal, 0, 1024);
+  uart_taskHandle = osThreadCreate(osThread(uart_task), NULL);
 
-    /* definition and creation of loggerTask */
-    osThreadDef(loggerTask, LoggerTask, osPriorityNormal, 0, 128);
-    loggerTaskHandle = osThreadCreate(osThread(loggerTask), NULL);
+  /* definition and creation of loggerTask */
+  osThreadDef(loggerTask, LoggerTask, osPriorityNormal, 0, 128);
+  loggerTaskHandle = osThreadCreate(osThread(loggerTask), NULL);
 
-    /* USER CODE BEGIN RTOS_THREADS */
+  /* USER CODE BEGIN RTOS_THREADS */
     /* add threads, ... */
-    /* USER CODE END RTOS_THREADS */
+  /* USER CODE END RTOS_THREADS */
+
 }
 
 /* USER CODE BEGIN Header_MainTask */
@@ -254,11 +254,11 @@ void MX_FREERTOS_Init(void)
  * @retval None
  */
 /* USER CODE END Header_MainTask */
-void MainTask(void const *argument)
+void MainTask(void const * argument)
 {
-    /* init code for LWIP */
-    MX_LWIP_Init();
-    /* USER CODE BEGIN MainTask */
+  /* init code for LWIP */
+  MX_LWIP_Init();
+  /* USER CODE BEGIN MainTask */
     // нициализируем логгер
     Logger_Init(&huart6);
 
@@ -348,7 +348,7 @@ void MainTask(void const *argument)
 
         // taskYIELD();
     }
-    /* USER CODE END MainTask */
+  /* USER CODE END MainTask */
 }
 
 /* USER CODE BEGIN Header_eth_Task */
@@ -358,9 +358,9 @@ void MainTask(void const *argument)
  * @retval None
  */
 /* USER CODE END Header_eth_Task */
-void eth_Task(void const *argument)
+void eth_Task(void const * argument)
 {
-    /* USER CODE BEGIN eth_Task */
+  /* USER CODE BEGIN eth_Task */
 
     while (gnetif.ip_addr.addr == 0)
     {
@@ -431,7 +431,7 @@ void eth_Task(void const *argument)
         }
         osDelay(1);
     }
-    /* USER CODE END eth_Task */
+  /* USER CODE END eth_Task */
 }
 
 /* USER CODE BEGIN Header_LedTask */
@@ -441,9 +441,9 @@ void eth_Task(void const *argument)
  * @retval None
  */
 /* USER CODE END Header_LedTask */
-void LedTask(void const *argument)
+void LedTask(void const * argument)
 {
-    /* USER CODE BEGIN LedTask */
+  /* USER CODE BEGIN LedTask */
     /* Infinite loop */
     HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_SET);
     HAL_GPIO_WritePin(G_GPIO_Port, G_Pin, GPIO_PIN_SET);
@@ -470,7 +470,7 @@ void LedTask(void const *argument)
         // taskYIELD();
         // osDelayUntil(&tickcount, 1); // задача будет вызываься ровро через 1 милисекунду
     }
-    /* USER CODE END LedTask */
+  /* USER CODE END LedTask */
 }
 
 /* USER CODE BEGIN Header_Debug_udp */
@@ -480,9 +480,9 @@ void LedTask(void const *argument)
  * @retval None
  */
 /* USER CODE END Header_Debug_udp */
-void Debug_udp(void const *argument)
+void Debug_udp(void const * argument)
 {
-    /* USER CODE BEGIN Debug_udp */
+  /* USER CODE BEGIN Debug_udp */
     while (gnetif.ip_addr.addr == 0)
     {
         osDelay(1);
@@ -570,7 +570,7 @@ void Debug_udp(void const *argument)
 
         osDelay(1);
     }
-    /* USER CODE END Debug_udp */
+  /* USER CODE END Debug_udp */
 }
 
 /* USER CODE BEGIN Header_uart_Task */
@@ -581,9 +581,9 @@ void Debug_udp(void const *argument)
  * @retval None
  */
 /* USER CODE END Header_uart_Task */
-void uart_Task(void const *argument)
+void uart_Task(void const * argument)
 {
-    /* USER CODE BEGIN uart_Task */
+  /* USER CODE BEGIN uart_Task */
     // HAL_UART_Receive_DMA(bridge_sett.RS485, UART2_rx, UART2_RX_LENGTH);
     HAL_UARTEx_ReceiveToIdle_DMA(&huart6, UART_debug_rx, UART6_RX_LENGTH);
     __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT);
@@ -669,18 +669,20 @@ void uart_Task(void const *argument)
             }
             else
             {
-                STM_LOG("id not valid");
+                // Игнорируем команды для других устройств (приходят по общему UART)
+                // STM_LOG("Skipping command for id=%d (our id=%d)", (int)cJSON_GetNumberValue(id), ID_CTRL);
             }
 
             cJSON_Delete(json);
         }
         else
         {
-            STM_LOG("Invalid JSON");
+            // Выводим полученные данные для отладки
+            STM_LOG("Invalid JSON. Received %d bytes: %s", strlen((char*)message_rx), (char*)message_rx);
         }
         osDelay(10);
     }
-    /* USER CODE END uart_Task */
+  /* USER CODE END uart_Task */
 }
 
 /* USER CODE BEGIN Header_LoggerTask */
@@ -690,16 +692,16 @@ void uart_Task(void const *argument)
  * @retval None
  */
 /* USER CODE END Header_LoggerTask */
-void LoggerTask(void const *argument)
+void LoggerTask(void const * argument)
 {
-    /* USER CODE BEGIN LoggerTask */
+  /* USER CODE BEGIN LoggerTask */
     /* Infinite loop */
     for (;;)
     {
         Logger_Process();
         osDelay(1);
     }
-    /* USER CODE END LoggerTask */
+  /* USER CODE END LoggerTask */
 }
 
 /* Private application code --------------------------------------------------*/
@@ -1013,6 +1015,9 @@ void action_ip(cJSON *obj, bool save)
         // Сохранение настроек если требуется
         if (save)
         {
+            // Используем тот же подход что и в Control_PWR:
+            // Write() внутри сам делает EraseSector + задержку + запись
+            // uart_task работает с повышенным приоритетом (osPriorityAboveNormal)
             if (mem_spi.Write(settings))
             {
                 STM_LOG("Save settings OK. size %d", sizeof(settings_t));
@@ -1117,6 +1122,7 @@ void action_settings_data(cJSON *obj)
     cJSON *j_all_settings_obj = cJSON_CreateObject();
     cJSON *obj_ch = cJSON_CreateArray();
     cJSON *obj_ip = cJSON_CreateObject();
+    cJSON *obj_sensor = cJSON_CreateObject();
 
     cJSON_AddNumberToObject(j_all_settings_obj, "id", ID_CTRL);
     cJSON_AddStringToObject(j_all_settings_obj, "name_device", NAME);
@@ -1158,10 +1164,33 @@ void action_settings_data(cJSON *obj)
     }
 
     cJSON_AddItemToObject(j_all_settings_obj, "obj_ip", obj_ip);
+    
+    // Добавляем данные датчика
+    cJSON_AddNumberToObject(obj_sensor, "sensorType", settings.sensorSett.sensorType);
+    cJSON_AddNumberToObject(obj_sensor, "modePwr", settings.sensorSett.modePwr);
+    cJSON_AddNumberToObject(obj_sensor, "callDistanceMin", settings.sensorSett.callDistanceMin);
+    cJSON_AddNumberToObject(obj_sensor, "callDistanceMax", settings.sensorSett.callDistanceMax);
+    cJSON_AddNumberToObject(obj_sensor, "triger", settings.sensorSett.triger);
+    cJSON_AddNumberToObject(obj_sensor, "timeCall", settings.sensorSett.timeCall);
+    cJSON_AddNumberToObject(obj_sensor, "k_H", (double)settings.sensorSett.k_H);
+    cJSON_AddNumberToObject(obj_sensor, "k_L", (double)settings.sensorSett.k_L);
+    cJSON_AddNumberToObject(obj_sensor, "callTimeMin", settings.sensorSett.timeParametrs.callTimeMin);
+    cJSON_AddNumberToObject(obj_sensor, "callTimeMax", settings.sensorSett.timeParametrs.callTimeMax);
+    cJSON_AddNumberToObject(obj_sensor, "timOutFalling", settings.sensorSett.timeParametrs.timOutFalling);
+    
+    // Добавляем текущие значения датчика (используем публичные методы)
+    cJSON_AddNumberToObject(obj_sensor, "current_raw", Sensor.GetResult());
+    cJSON_AddNumberToObject(obj_sensor, "current_filtered", Sensor.GetDistance_mm());
+    cJSON_AddNumberToObject(obj_sensor, "is_detected", Sensor.Getdetect() ? 1 : 0);
+    
+    cJSON_AddItemToObject(j_all_settings_obj, "obj_sensor", obj_sensor);
 
     char *str_to_host = cJSON_Print(j_all_settings_obj);
-
-    // STM_LOG("%s", str_to_host);
+    
+    if (str_to_host == NULL) {
+        cJSON_Delete(j_all_settings_obj);
+        return;
+    }
 
     // Проверяем размер строки и отправляем частями если нужно
     size_t total_len = strlen(str_to_host);

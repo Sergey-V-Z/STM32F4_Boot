@@ -13,6 +13,18 @@
 		},
 		{
 			"path": "../UD_v4"
+		},
+		{
+			"path": "../ir_sensor"
+		},
+		{
+			"path": "../bootloader"
+		},
+		{
+			"path": "../../dimmer_v2/soft"
+		},
+		{
+			"path": "../../STM32F103_Boot/driverPCB_v2_boot"
 		}
 	],
 	"settings": {
@@ -22,6 +34,11 @@
 		"files.associations": {
 			"*.h": "c",
 			"*.c": "c"
-		}
+		},
+		"stm32cube-ide-clangd.arguments": [
+			"starm-clangd",
+			"--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/13.3.1+st.9/bin/arm-none-eabi-gcc.exe",
+			"--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/13.3.1+st.9/bin/arm-none-eabi-g++.exe"
+		]
 	}
 }

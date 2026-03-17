@@ -487,6 +487,12 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
 
     secondary_status_t sec_status = *(secondary_status_t *)&rx_data;
 
+    // Проверка режима работы устройства
+    if (sec_status.mode != MODE_APP) {
+      STM_LOG(LOG_WARN "Device at addr %d is in bootloader mode (mode=%d), skipping", addr, sec_status.mode);
+      continue;
+    }
+
     dev[i].Addr = addr;
     dev[i].AddrFromDev = header.address;
     dev[i].TypePCB = (PCBType)sec_status.type_pcb;

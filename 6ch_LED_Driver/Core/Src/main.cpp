@@ -181,7 +181,7 @@ int main(void)
     HAL_GPIO_WritePin(eth_NRST_GPIO_Port, eth_NRST_Pin, GPIO_PIN_SET);
 
     // работаем с настройками из флешки
-    if ((settings.version == 0) | (settings.version == 0xFF) | resetSettings)
+    if ((settings.version == 0) || (settings.version == 0xFF) || resetSettings)
     {
         STM_LOG("Reset settings");
 
