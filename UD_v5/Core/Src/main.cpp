@@ -468,121 +468,25 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart) {
 }
 
 void HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim){
-    if(htim->Instance == TIM3)
-    {
-    	switch (settings.mod_rotation) {
-    		case step_by_meter_enc_intermediate:
-    		case calibration_enc:
-    		{
-				switch(htim->Channel)
-						{
-							case HAL_TIM_ACTIVE_CHANNEL_1:
-								// канал торможения
-								//pMotor->StepsAllHandler(__HAL_TIM_GET_COUNTER(htim));
-								break;
+    if (pMotor == nullptr) return;
 
-							case HAL_TIM_ACTIVE_CHANNEL_2:
-								//канал остановки
-
-								// Прерывание от канала 2
-								break;
-
-		                    case HAL_TIM_ACTIVE_CHANNEL_3:
-		                        // Событие канала 3 - начало торможения
-		                        pMotor->handleEncoderCompare(TIM_CHANNEL_3);
-		                        break;
-
-		                    case HAL_TIM_ACTIVE_CHANNEL_4:
-		                        // Событие канала 4 - завершение части или остановка
-		                        pMotor->handleEncoderCompare(TIM_CHANNEL_4);
-		                        break;
-
-							case HAL_TIM_ACTIVE_CHANNEL_CLEARED:
-								// Нет активного канала
-								break;
-
-							default:
-								// Неизвестный канал
-								break;
-						}
-    			break;
-    		}
-    		case step_by_meter_timer_intermediate:
-    		//case step_by_meter_timer_limit:
-    		case calibration_timer:
-    		case bldc_limit:
-    		case step_inf:
-    		case bldc_inf:
-    		{
-    			return;
-    			break;
-    		}
-    		default:
-    		{
-    			break;
-    		}
-    	}
-
+    // TIM1 — генератор шагов (разгон/торможение)
+    if (htim->Instance == TIM1) {
+        pMotor->handleTimerInterrupt();
+        return;
     }
 
-    if(htim->Instance == TIM4)
-    {
-    	switch (settings.mod_rotation) {
-    		case step_by_meter_timer_intermediate:
-    		//case step_by_meter_timer_limit:
-    		case calibration_timer:
-    		{
-    	        switch(htim->Channel)
-    	                {
-    	                    case HAL_TIM_ACTIVE_CHANNEL_1:
-    	                        // Вызываем обработчик для канала 1 (начало торможения)
-    	                        pMotor->handleTimerCompare(TIM_CHANNEL_1);
-    	                        break;
-
-    	                    case HAL_TIM_ACTIVE_CHANNEL_2:
-    	                        // Вызываем обработчик для канала 2 (остановка или конец части)
-    	                        pMotor->handleTimerCompare(TIM_CHANNEL_2);
-    	                        break;
-
-    	                    case HAL_TIM_ACTIVE_CHANNEL_3:
-    	                        // Прерывание от канала 3
-    	                        break;
-
-    	                    case HAL_TIM_ACTIVE_CHANNEL_4:
-    	                        // Прерывание от канала 4
-    	                        break;
-
-    	                    case HAL_TIM_ACTIVE_CHANNEL_CLEARED:
-    	                        // Нет активного канала
-    	                        break;
-
-    	                    default:
-    	                        // Неизвестный канал
-    	                        break;
-    	                }
-    			break;
-    		}
-    		case step_by_meter_enc_intermediate:
-    		//case step_by_meter_enc_limit:
-    		case calibration_enc:
-    		case bldc_limit:
-    		case step_inf:
-    		case bldc_inf:
-    		{
-    			return;
-    			break;
-    		}
-    		default:
-    		{
-    			break;
-    		}
-    	}
+    // TIM3 / TIM4 — feedback-таймер (энкодер или счётчик шагов)
+    // Преобразуем hal-канал в номер канала для handleFeedbackCompare
+    uint32_t channel = 0;
+    switch (htim->Channel) {
+        case HAL_TIM_ACTIVE_CHANNEL_1: channel = TIM_CHANNEL_1; break;
+        case HAL_TIM_ACTIVE_CHANNEL_2: channel = TIM_CHANNEL_2; break;
+        case HAL_TIM_ACTIVE_CHANNEL_3: channel = TIM_CHANNEL_3; break;
+        case HAL_TIM_ACTIVE_CHANNEL_4: channel = TIM_CHANNEL_4; break;
+        default: return;
     }
-    // Обработка прерывания таймера генерации шагов
-    if (htim->Instance == TIM1 && pMotor != nullptr) {
-      pMotor->handleTimerInterrupt();
-    }
-
+    pMotor->handleFeedbackCompare(htim, channel);
 }
 
 

@@ -54,18 +54,21 @@ uint8_t FirmwareUpdateServer_Start(void) {
         return 1;
     }
 
+    // Диагностика heap перед созданием задачи
+    STM_LOG("Free heap before TCP task: %d bytes", (int)xPortGetFreeHeapSize());
+
     // Создаем задачу TCP-сервера
     BaseType_t result = xTaskCreate(
         TCPServerTask,           // Функция задачи
         "FWUpdateServer",        // Имя задачи
         512,                     // Размер стека в словах
         NULL,                    // Параметры задачи
-		osPriorityNormal,    // Приоритет
+        osPriorityNormal,        // Приоритет
         &g_serverState.serverTaskHandle  // Указатель на дескриптор задачи
     );
 
     if (result != pdPASS) {
-        STM_LOG("Failed to create TCP server task");
+        STM_LOG("Failed to create TCP server task (free heap: %d)", (int)xPortGetFreeHeapSize());
         return 2;
     }
 
@@ -273,24 +276,45 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
             break;
 
         case CMD_START_UPDATE:
-            // Начинаем процесс обновления
-            result = FirmwareUpdate_StartUpdate(data_size, block_number);
-            if (result == UPDATE_ERROR_NONE) {
-                SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
-            } else {
-                SendResponse(client, UPDATE_STATUS_ERROR, result);
-            }
-            break;
-
         case CMD_START_BACKUP_UPDATE:
-            // Начинаем процесс обновления резервной прошивки
-            result = FirmwareUpdate_StartBackupUpdate(data_size, block_number);
+        {
+            // Извлекаем размер и версию прошивки из payload (новый протокол settings_tool)
+            // Заголовок: command(4) + size(4) + block_number(4), size содержит размер payload
+            uint32_t fw_size = 0;
+            uint32_t fw_version = 0;
+            uint32_t payload_size = data_size; // data_size = header.size = размер payload в новом протоколе
+
+            if (data_len >= PACKET_HEADER_SIZE + sizeof(meta_t) + sizeof(FWUpdateParams)
+                && payload_size >= sizeof(meta_t) + sizeof(FWUpdateParams))
+            {
+                // Новый протокол: meta_t + FWUpdateParams в payload
+                const meta_t *meta = (const meta_t*)(g_rxBuffer + PACKET_HEADER_SIZE);
+                const FWUpdateParams *params = (const FWUpdateParams*)(g_rxBuffer + PACKET_HEADER_SIZE + sizeof(meta_t));
+                fw_size    = params->fw_size;
+                fw_version = meta->version;
+                STM_LOG("New protocol: fw_size=%lu, version=0x%08lX", fw_size, fw_version);
+            }
+            else
+            {
+                // Старый протокол: размер в header.size, версия в header.block_number
+                fw_size    = data_size;
+                fw_version = block_number;
+                STM_LOG("Old protocol: fw_size=%lu, version=0x%08lX", fw_size, fw_version);
+            }
+
+            if (command == CMD_START_UPDATE) {
+                result = FirmwareUpdate_StartUpdate(fw_size, fw_version);
+            } else {
+                result = FirmwareUpdate_StartBackupUpdate(fw_size, fw_version);
+            }
+
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
             } else {
                 SendResponse(client, UPDATE_STATUS_ERROR, result);
             }
             break;
+        }
 
         case CMD_FIRMWARE_DATA:
             {

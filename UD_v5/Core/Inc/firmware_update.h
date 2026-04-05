@@ -83,6 +83,14 @@ typedef enum {
 	BOOTLOADER_STATE_ERROR /* Error state */
 } Bootloader_State_t;
 
+// Структура параметров обновления, передаваемых в payload пакета CMD_START_UPDATE
+typedef struct {
+    uint32_t fw_size;    // Размер прошивки в байтах
+    uint32_t fw_crc;     // CRC32 прошивки
+    uint32_t cell_num;   // Номер ячейки (для устройств с вторичными платами)
+    uint32_t reserved;   // Зарезервировано
+} FWUpdateParams;
+
 // Формат заголовка пакета (упрощенный)
 typedef struct {
 	uint32_t command;       // Команда

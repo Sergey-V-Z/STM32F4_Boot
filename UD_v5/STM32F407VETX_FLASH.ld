@@ -40,8 +40,8 @@ ENTRY(Reset_Handler)
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
 
-_Min_Heap_Size = 0x4000; /* required amount of heap */
-_Min_Stack_Size = 0x4000; /* required amount of stack */
+_Min_Heap_Size = 0x800; /* required amount of heap (newlib sbrk, FreeRTOS heap in CCMRAM via ucHeap) */
+_Min_Stack_Size = 0x1000; /* required amount of stack */
 
 /* Memories definition */
 MEMORY
@@ -168,16 +168,10 @@ SECTIONS
   /* CCM-RAM section
   *
   * IMPORTANT NOTE!
-  * If initialized variables will be placed in this section,
-  * the startup code needs to be modified to copy the init-values.
+  * Инициализированные переменные в этой секции требуют копирования в startup.
+  * ucHeap FreeRTOS размещается здесь через атрибут __attribute__((section(".ccmram")))
+  * и копируется startup-кодом из FLASH. Это освобождает RAM для стека и данных.
   */
-  .ccmram :
-  {
-    . = ALIGN(8);
-    . = . + _Min_Heap_Size;
-    . = ALIGN(8);
-  } >CCMRAM
-  
   .ccmram :
   {
     . = ALIGN(4);
@@ -188,13 +182,6 @@ SECTIONS
     . = ALIGN(4);
     _eccmram = .;       /* create a global symbol at ccmram end */
   } >CCMRAM AT> FLASH
-
-  .ccmram :
-  {
-    . = ALIGN(8);
-    . = . + _Min_Heap_Size;
-    . = ALIGN(8);
-  } >CCMRAM
 
   /* Uninitialized data section into "RAM" Ram type memory */
   . = ALIGN(4);
@@ -218,7 +205,7 @@ SECTIONS
     . = ALIGN(8);
     PROVIDE ( end = . );
     PROVIDE ( _end = . );
-    /*. = . + _Min_Heap_Size;*/
+    . = . + _Min_Heap_Size;
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM

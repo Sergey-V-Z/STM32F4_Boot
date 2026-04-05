@@ -100,22 +100,18 @@ public:
 
     // Методы управления движением
     bool start(uint32_t steps, dir d = dir::END_OF_LIST);
-    bool startForCall(dir d);
+    bool startForCall(dir d); // используется только калибровкой
 
     void stop(statusTarget_t status);
     void slowdown();
     void removeBreak(bool status);
-    //void goTo(int steps, dir direct);
     void Init();
     bool Calibration_pool();
     bool limit_switch_pool();
-    //void findHome();
     void CallStart();
-    //void findHomeStart();
 
     bool saveCurrentPositionAsPoint(uint32_t point_number);
     uint32_t getCurrentSteps();
-    //bool setCurrentPosition(uint32_t position);
     bool gotoPoint(uint32_t point_number);
     bool gotoLSwitch(uint8_t sw_x);
     uint32_t getCurrentPoint() { return settings->points.current_point; }
@@ -126,98 +122,85 @@ public:
     uint32_t getMinPosition() const;
     bool isCalibrated();
 
-    // Обработчики
-    //void StepsHandler(uint32_t steps);
-    //void StepsAllHandler(uint32_t steps);
-    void SensHandler(uint16_t GPIO_Pin);
-    void AccelHandler();
-    void StartDebounceTimer(uint16_t GPIO_Pin);
-    void HandleDebounceTimeout();
-    void handleTimerInterrupt();
-
-    void setupEncoderMovement(uint32_t totalSteps, dir direction);
-    void handleEncoderCompare(uint32_t channel);
-    void updateGlobalPosition();
-    void updateEncoderGlobalPosition();// Периодическое обновление глобальной позиции во время движения
-
-    // Методы для работы с 32-битной позицией в режиме таймера
-    void updateTimerGlobalPosition();
-    void setupTimerMovement(uint32_t totalSteps, dir direction);
-    void handleTimerCompare(uint32_t channel);
+    // Обработчики прерываний
+    void SensHandler(uint16_t GPIO_Pin);             // EXTI концевики
+    void StartDebounceTimer(uint16_t GPIO_Pin);       // Запуск антидребезга при старте
+    void HandleDebounceTimeout();                    // TIM6 callback
+    void handleTimerInterrupt();                     // TIM1 OC callback (шаг генератор)
+    // Единый обработчик feedback-таймера (заменяет handleEncoderCompare + handleTimerCompare)
+    void handleFeedbackCompare(TIM_HandleTypeDef *htim, uint32_t channel);
 
 private:
-    // Для отслеживания абсолютной позиции
-    int32_t globalPosition = 0;
-    uint32_t targetAbsolutePosition = 0; // Для хранения целевой абсолютной позиции
-    const uint16_t ENCODER_MID_VALUE = 0x7FFF; // 32767 (середина 16-битного диапазона)
-    const uint16_t ENCODER_MAX_PART = 0x6000;  // Максимальное движение в одной части (~24,000)
-    bool isLastEncoderPart = false;            // Флаг последней части
-    uint32_t totalRemainingSteps = 0;          // Оставшиеся шаги для движения
+    // ---- Feedback: единая позиция для энкодера и таймера счётчика ----
+    int32_t feedbackPosition = 0;   // заменяет globalPosition и globalPositionTimer
+    uint32_t targetAbsolutePosition = 0;          // Целевая позиция для коррекции
+    static const uint16_t FEEDBACK_MID_VALUE = 0x7FFF; // Середина 16-битного диапазона
+    static const uint16_t FEEDBACK_MAX_PART  = 0x6000; // Максимальный шаг одного сегмента
+    bool isLastSegment = false;                // Флаг последнего сегмента движения
+    uint32_t totalRemainingSteps = 0;          // Оставшиеся шаги
 
-    // Для отслеживания абсолютной позиции в режиме таймера
-    int32_t globalPositionTimer = 0;          // 32-битная глобальная позиция для таймера
-    const uint16_t TIMER_MID_VALUE = 0x7FFF;  // Среднее значение для таймера (аналогично энкодеру)
-    const uint16_t TIMER_MAX_PART = 0x6000;   // Максимальное движение в одной части
-    bool isLastTimerPart = true;              // Флаг последней части движения для таймера
-
-    //void updateCurrentSteps(int32_t steps);
     bool validatePointNumber(uint32_t point_number);
-    //void updateMotionCounter();
     bool validatePosition(uint32_t position);
-    //void calculateTargetDistance(uint32_t position);
 
-    void InitTim();
+    // Helpers для выбора feedback-таймера (энкодер TIM3 или счётчик TIM4)
+    bool isEncoderMode() const;
+    TIM_HandleTypeDef* getFeedbackTimer() const;
+    uint32_t getFeedbackCH_brake() const; // канал начала торможения
+    uint32_t getFeedbackCH_stop()  const; // канал остановки / конца сегмента
+    void feedbackSetup(uint32_t totalSteps, dir direction); // настройка OC перед движением
+    void handleFeedbackStop();                               // внутренний обработчик остановки
+    void resetFeedbackCounter();                            // сброс счётчика на MID
+
     double map(double x, double in_min, double in_max, double out_min, double out_max);
-    bool waitForStop(uint32_t timeout_ms);
     void ChangeTimerMode(TIM_HandleTypeDef *htim, uint32_t Mode);
 
-    uint32_t calculateBrakingDistance(uint32_t currentSpeed);
-    double calculateAccelStep(double progress);
-
-    void calculateTimerFrequency();// Метод для расчета частоты тактирования таймера
-
+    void calculateTimerFrequency();
     uint16_t map_PercentFromARR(uint16_t arr_value);
     uint16_t map_ARRFromPercent(uint16_t percent_value);
-    /**
-     * Проверка правильности направления движения по энкодеру
-     * Останавливает двигатель при обнаружении неверного направления
-     */
-    void checkEncoderDirection();
-
-    /**
-     * Проверка наличия движения по энкодеру
-     * Запускает таймер при отсутствии движения
-     */
-    void checkEncoderMotion();
-
-    // Методы для работы с таблицами разгона и торможения
-    void calculateAccelTable(uint32_t accelSteps);   // Расчет таблицы разгона
-    void calculateDecelTable(uint32_t brakingSteps);   // Расчет таблицы торможения
-    uint32_t calculateBrakingSteps();  // Расчет количества шагов для торможения
+    void calculateAccelTable(uint32_t accelSteps);
+    void calculateDecelTable(uint32_t brakingSteps);
+    uint32_t calculateBrakingSteps();
     uint32_t calculateAccelSteps();
 
-    // Параметры драйвера
+    // ---- Calibration FSM ----
+    enum class CalibState { IDLE, MOVE_TO_D1, AT_D1_SETTLE, MOVE_TO_D0, DONE, ERROR };
+    CalibState calibState = CalibState::IDLE;
+    uint32_t   calibDelayUntil = 0;
+    mode_rotation_t tempCalibMode = step_inf;
+
+    // ---- Параметры драйвера ----
     driver_status_t currentDriverStatus;
     uint32_t lastDriverCheckTime;
-    const uint32_t DRIVER_STATUS_VALIDITY_TIME = 1000; // мс
+    const uint32_t DRIVER_STATUS_VALIDITY_TIME = 1000;
     GPIO_TypeDef* driverErrorPort;
     uint16_t driverErrorPin;
 
-    // Основные параметры
+    // ---- Основные дескрипторы ----
     settings_t *settings;
-    TIM_HandleTypeDef *TimCountAllSteps;
-    TIM_HandleTypeDef *TimFrequencies;
+    TIM_HandleTypeDef *TimCountAllSteps; // TIM4 — счётчик шагов (slave)
+    TIM_HandleTypeDef *TimFrequencies;   // TIM1 — генератор шагов (PWM)
     uint32_t ChannelClock;
-    TIM_HandleTypeDef* debounceTimer;
-    TIM_HandleTypeDef *TimEncoder;
+    TIM_HandleTypeDef* debounceTimer;    // TIM6 — антидребезг
+    TIM_HandleTypeDef *TimEncoder;       // TIM3 — квадратурный энкодер
 
     const uint32_t DEBOUNCE_TIMEOUT = 50;
-    bool ignore_sensors = false;
+    // Раздельное игнорирование концевиков: устанавливается при старте
+    // с соответствующего концевика, чтобы не реагировать на дребезг при отъезде.
+    // Концевик НАЗНАЧЕНИЯ при этом НИКОГДА не игнорируется.
+    volatile bool ignore_D0 = false;  // игнорировать D0 (только что стартовали с него)
+    volatile bool ignore_D1 = false;  // игнорировать D1 (только что стартовали с него)
     bool is_start_ignore_timer = false;
     volatile bool d0_debounce_active = false;
     volatile bool d1_debounce_active = false;
 
-    // Параметры движения
+    // Счётчики последовательных срабатываний для limit_switch_pool.
+    // ISR (SensHandler) останавливает мотор в первые микросекунды после касания,
+    // поэтому при нормальной работе счётчик никогда не достигает порога.
+    // Аварийная остановка — только если мотор застрял и ISR не сработал.
+    uint8_t d0_pool_cnt = 0;
+    uint8_t d1_pool_cnt = 0;
+
+    // ---- Параметры движения ----
     uint32_t MaxSpeed = 1;
     uint32_t MinSpeed = 20000;
     uint32_t Time = 0;
@@ -225,28 +208,26 @@ private:
     uint32_t PrevCounterENC = 0;
     uint8_t countErrDir = 3;
     uint32_t CallSteps = 0;
-    //uint32_t LastDistance = 0;
     uint32_t motionSteps = 0;
     uint32_t Speed_Call = 0;
     uint32_t Speed_temp = 0;
 
-    // Состояния
+    // ---- Состояния ----
     statusMotor Status = statusMotor::STOPPED;
     statusTarget_t StatusTarget = statusTarget_t::finished;
     fb FeedbackType = fb::NON;
 
-    // Параметры позиционирования
+    // ---- Позиционирование ----
     const uint32_t START_VIBRATION_TIMEOUT = 30;
     uint32_t vibration_start_time = 0;
     pos_t position = pos_t::D_0_1;
     pos_t target = pos_t::D_0_1;
     uint32_t watchdog = 10000;
     bool permission_calibrate = false;
-    bool permission_findHome = false;
     bool change_pos = false;
     uint32_t time = 0;
     uint8_t bos_bit = 0;
-    uint32_t timerTickFreq;  // Частота тактирования таймера с учетом предделителя
+    uint32_t timerTickFreq;
 
     // Максимальное количество шагов в таблице разгона/торможения
     static const uint16_t MAX_RAMP_STEPS = 1000;
