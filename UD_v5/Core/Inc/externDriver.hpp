@@ -102,7 +102,7 @@ public:
     bool start(uint32_t steps, dir d = dir::END_OF_LIST);
     bool startForCall(dir d); // используется только калибровкой
 
-    void stop(statusTarget_t status);
+    void stop(statusTarget_t status, bool force_disable = false);
     void slowdown();
     void removeBreak(bool status);
     void Init();
@@ -121,6 +121,18 @@ public:
     uint32_t getMaxPosition() const;
     uint32_t getMinPosition() const;
     bool isCalibrated();
+
+    // Управление флагами EN
+    bool getDisableOnStop() const  { return (settings->res1 & FLAG_DISABLE_ON_STOP) != 0; }
+    void setDisableOnStop(bool val) {
+        if (val) settings->res1 |=  FLAG_DISABLE_ON_STOP;
+        else     settings->res1 &= ~FLAG_DISABLE_ON_STOP;
+    }
+    bool getEnInvert() const { return (settings->res1 & FLAG_EN_INVERT) != 0; }
+    void setEnInvert(bool val) {
+        if (val) settings->res1 |=  FLAG_EN_INVERT;
+        else     settings->res1 &= ~FLAG_EN_INVERT;
+    }
 
     // Обработчики прерываний
     void SensHandler(uint16_t GPIO_Pin);             // EXTI концевики
@@ -153,6 +165,10 @@ private:
 
     double map(double x, double in_min, double in_max, double out_min, double out_max);
     void ChangeTimerMode(TIM_HandleTypeDef *htim, uint32_t Mode);
+
+    // Управление EN с учётом инверсии
+    void enableDriver();
+    void disableDriver();
 
     void calculateTimerFrequency();
     uint16_t map_PercentFromARR(uint16_t arr_value);

@@ -265,6 +265,16 @@ int main(void)
 
 
 	}
+	// Миграция v47 → v48: инициализируем поле флагов res1,
+	// сохраняя старое поведение (всегда отключать EN при стопе).
+	if (settings.version == 47) {
+		settings.res1 = FLAG_DISABLE_ON_STOP; // старое поведение: всегда отключать EN при стопе
+		settings.version = 48;
+		mem_spi.W25qxx_EraseSector(0);
+		mem_spi.Write(settings);
+		mem_spi.Read(&settings);
+	}
+
 	if((settings.version == 0) || (settings.version == 0xFF) || resetSettings || settings.version != CURENT_VERSION)
 	{
 		//STM_LOG("Start reset settings");
@@ -279,6 +289,7 @@ int main(void)
 		settings.Slowdown = 200; // чем больше число тем медленне ускорение
 		//settings.SlowdownDistancePer = 10.0; //10%
 		settings.res = 0;
+		settings.res1 = 0; // новая установка: disable_on_stop=0, en_invert=0
 		settings.TimeOut = 60000;
 		settings.DHCPset = true;
 

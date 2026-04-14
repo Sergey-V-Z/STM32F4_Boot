@@ -74,7 +74,11 @@ extern DMA_HandleTypeDef hdma_usart2_rx;
 #define DBG_PORT huart2
 #define LOG_TX_BUF_SIZE 2048
 
-#define CURENT_VERSION 47
+#define CURENT_VERSION 48
+
+// Биты поля res1 в settings_t
+#define FLAG_DISABLE_ON_STOP  (1U << 0)  // бит 0: отключать EN при любом стопе (0=держать под током, 1=отключать)
+#define FLAG_EN_INVERT        (1U << 1)  // бит 1: инверсия EN (0=активный LOW, 1=активный HIGH)
 #define ID_CTRL 2
 #define NAME FIRMWARE_NAME
 
@@ -183,7 +187,7 @@ typedef struct {
     uint32_t StartSpeed;        // начальная скорость
     uint32_t Accel;             // ускорение шагов в милисекунду
     uint32_t Slowdown;          // торможение шагов
-    uint32_t res1;
+    uint32_t res1;              // биты флагов: FLAG_DISABLE_ON_STOP (бит0), FLAG_EN_INVERT (бит1)
     uint32_t res;
 
     // Параметры энкодера

@@ -285,16 +285,26 @@ string Сommand_execution(string in_str)
 				arr_cmd[i].err = "OK";
 				break;
 			}
-			// Chanel on/off
+			// Chanel on/off/fade-on/fade-off
+			// D0 = instant off, D1 = instant on, D3 = fade on, D4 = fade off
 			case 4:
 			{
-				// mode set all channel
+				uint32_t mode = arr_cmd[i].data_in;
+				// mode set all channels (addres_var >= 1)
 				if (arr_cmd[i].addres_var >= 1)
 				{
-					if (arr_cmd[i].data_in) {
+					if (mode == 1) {
 						PWM_EnableAll();
-					} else {
+					} else if (mode == 0) {
 						PWM_DisableAll();
+					} else if (mode == 3) {
+						PWM_EnableFadeAll();
+					} else if (mode == 4) {
+						PWM_DisableFadeAll();
+					} else {
+						arr_cmd[i].err = "Invalid mode";
+						arr_cmd[i].f_bool = true;
+						break;
 					}
 					arr_cmd[i].err = "OK";
 				}
@@ -304,10 +314,18 @@ string Сommand_execution(string in_str)
 					uint32_t ch = arr_cmd[i].data_in1;
 					if (ch < PWM_CH_COUNT)
 					{
-						if (arr_cmd[i].data_in) {
+						if (mode == 1) {
 							PWM_Enable((PWM_Channel_t)ch);
-						} else {
+						} else if (mode == 0) {
 							PWM_Disable((PWM_Channel_t)ch);
+						} else if (mode == 3) {
+							PWM_EnableFade((PWM_Channel_t)ch);
+						} else if (mode == 4) {
+							PWM_DisableFade((PWM_Channel_t)ch);
+						} else {
+							arr_cmd[i].err = "Invalid mode";
+							arr_cmd[i].f_bool = true;
+							break;
 						}
 						arr_cmd[i].err = "OK";
 					}
@@ -359,12 +377,30 @@ string Сommand_execution(string in_str)
 				}
 				break;
 			}
-			// Current read from channel (not available for direct PWM control)
+			// Fade duration set/get
+			// data_in1=0: set duration (data_in = ms, 50-10000)
+			// data_in1=1: get current duration
 			case 7:
 			{
-				arr_cmd[i].data_out = 0;
-				arr_cmd[i].need_resp = true;
-				arr_cmd[i].err = "Not available";
+				if (arr_cmd[i].data_in1 == 1)
+				{
+					arr_cmd[i].data_out = PWM_GetFadeDuration();
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				else
+				{
+					uint32_t ms = arr_cmd[i].data_in;
+					if (ms >= 50 && ms <= 10000)
+					{
+						PWM_SetFadeDuration((uint16_t)ms);
+						arr_cmd[i].err = "OK";
+					}
+					else
+					{
+						arr_cmd[i].err = "Invalid range (50-10000 ms)";
+					}
+				}
 				break;
 			}
 			// is on

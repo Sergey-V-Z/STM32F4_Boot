@@ -215,8 +215,9 @@ string Command_execution(string in_str){
 					switch (arr_cmd[i].data_in) {
 						case 0:
 						{
+							bool force_dis = (arr_cmd[i].data_in1 != 0);
 							pMotor->removeBreak(false);
-							pMotor->stop(statusTarget_t::finished);
+							pMotor->stop(statusTarget_t::finished, force_dis);
 							//pMotor->slowdown();
 							arr_cmd[i].err = " OK ";
 							break;
@@ -492,6 +493,33 @@ string Command_execution(string in_str){
 			        arr_cmd[i].err = " OK ";
 			    }
 			    break;
+			case 31: // disable_on_stop: A0=записать (D=значение, N=1 сохранить в flash), A1=читать
+				if (arr_cmd[i].addres_var == 0) {
+					pMotor->setDisableOnStop(arr_cmd[i].data_in != 0);
+					if (arr_cmd[i].data_in1 != 0) {
+						mem_spi.Write(settings);
+					}
+					arr_cmd[i].err = " OK ";
+				} else {
+					arr_cmd[i].data_out = pMotor->getDisableOnStop() ? 1U : 0U;
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = " OK ";
+				}
+				break;
+
+			case 32: // en_invert: A0=записать (D=значение, N=1 сохранить в flash), A1=читать
+				if (arr_cmd[i].addres_var == 0) {
+					pMotor->setEnInvert(arr_cmd[i].data_in != 0);
+					if (arr_cmd[i].data_in1 != 0) {
+						mem_spi.Write(settings);
+					}
+					arr_cmd[i].err = " OK ";
+				} else {
+					arr_cmd[i].data_out = pMotor->getEnInvert() ? 1U : 0U;
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = " OK ";
+				}
+				break;
 			default:
 				arr_cmd[i].err = "Command does not exist";
 				arr_cmd[i].f_bool = true;

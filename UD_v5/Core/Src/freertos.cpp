@@ -526,6 +526,10 @@ void actoin_motor_set(cJSON *obj, bool save) {
 	cJSON *j_set_cw_ccw = cJSON_GetObjectItemCaseSensitive(obj, "set_cw_ccw");
 	cJSON *j_rotation = cJSON_GetObjectItemCaseSensitive(obj, "rotation");
 	cJSON *j_set_rotation = cJSON_GetObjectItemCaseSensitive(obj,"set_rotation");
+	cJSON *j_disable_on_stop = cJSON_GetObjectItemCaseSensitive(obj, "disable_on_stop");
+	cJSON *j_set_disable_on_stop = cJSON_GetObjectItemCaseSensitive(obj, "set_disable_on_stop");
+	cJSON *j_en_invert = cJSON_GetObjectItemCaseSensitive(obj, "en_invert");
+	cJSON *j_set_en_invert = cJSON_GetObjectItemCaseSensitive(obj, "set_en_invert");
 
 	// Временные переменные для хранения значений до проверки их корректности
 	int Speed = 0;
@@ -667,6 +671,20 @@ void actoin_motor_set(cJSON *obj, bool save) {
 	if ((j_set_rotation != NULL) && (j_rotation != NULL) && cJSON_IsNumber(j_rotation)) {
 		if (cJSON_IsTrue(j_set_rotation)) {
 			pMotor->SetMode((mode_rotation_t)j_rotation->valuedouble);
+		}
+	}
+
+	// Обработка disable_on_stop
+	if ((j_set_disable_on_stop != NULL) && (j_disable_on_stop != NULL) && cJSON_IsNumber(j_disable_on_stop)) {
+		if (cJSON_IsTrue(j_set_disable_on_stop)) {
+			pMotor->setDisableOnStop(j_disable_on_stop->valueint != 0);
+		}
+	}
+
+	// Обработка en_invert
+	if ((j_set_en_invert != NULL) && (j_en_invert != NULL) && cJSON_IsNumber(j_en_invert)) {
+		if (cJSON_IsTrue(j_set_en_invert)) {
+			pMotor->setEnInvert(j_en_invert->valueint != 0);
 		}
 	}
 
@@ -954,6 +972,10 @@ void actoin_resp_all_set() {
 	cJSON_AddNumberToObject(j_all_settings_obj, "cw_ccw", pMotor->getStatusDirect());
 
 	cJSON_AddNumberToObject(j_all_settings_obj, "rotation", pMotor->getMode());
+
+	cJSON_AddNumberToObject(j_all_settings_obj, "disable_on_stop", pMotor->getDisableOnStop() ? 1 : 0);
+
+	cJSON_AddNumberToObject(j_all_settings_obj, "en_invert", pMotor->getEnInvert() ? 1 : 0);
 
 	cJSON_AddStringToObject(j_all_settings_obj, "version", std::to_string(settings.version).c_str());
 

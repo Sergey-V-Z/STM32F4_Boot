@@ -134,6 +134,7 @@ osThreadId MBRTUTaskHandle;
 osThreadId MBETHTaskHandle;
 osThreadId uart_taskHandle;
 osThreadId loggerTaskHandle;
+osThreadId fadeTasHandle;
 osMessageQId rxDataUART6Handle;
 osMessageQId rxDataUART1Handle;
 osSemaphoreId ADC_endHandle;
@@ -165,6 +166,7 @@ void mbrtuTask(void const * argument);
 void mbethTask(void const * argument);
 void uart_Task(void const * argument);
 void LoggerTask(void const * argument);
+void fadeTask(void const * argument);
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -268,6 +270,8 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
 	/* add threads, ... */
+	osThreadDef(fadeTas, fadeTask, osPriorityNormal, 0, 128);
+	fadeTasHandle = osThreadCreate(osThread(fadeTas), NULL);
   /* USER CODE END RTOS_THREADS */
 
 }
@@ -613,6 +617,15 @@ void LoggerTask(void const * argument)
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 
+void fadeTask(void const * argument)
+{
+    for (;;)
+    {
+        PWM_FadeTick();
+        osDelay(FADE_TICK_MS);
+    }
+}
+
 // Получение настроек сети от хоста
 void action_ip(cJSON *obj, bool save)
 {
@@ -899,23 +912,30 @@ void action_commands(cJSON *obj)
 	
 	switch (cmd_num)
 	{
-	case 4: // Включение/выключение каналов
+	case 4: // Включение/выключение каналов (mode: 0=instant off, 1=instant on, 3=fade on, 4=fade off)
 	{
-		cJSON *all = cJSON_GetObjectItemCaseSensitive(obj, "all");
-		cJSON *enable = cJSON_GetObjectItemCaseSensitive(obj, "enable");
-		cJSON *channels = cJSON_GetObjectItemCaseSensitive(obj, "channels");
-		
+		cJSON *all       = cJSON_GetObjectItemCaseSensitive(obj, "all");
+		cJSON *mode_json = cJSON_GetObjectItemCaseSensitive(obj, "mode");
+		cJSON *enable    = cJSON_GetObjectItemCaseSensitive(obj, "enable");
+		cJSON *channels  = cJSON_GetObjectItemCaseSensitive(obj, "channels");
+
+		// Определяем режим (если передан mode — используем его, иначе из enable)
+		int mode = -1;
+		if (cJSON_IsNumber(mode_json)) {
+			mode = mode_json->valueint;
+		} else if (cJSON_IsBool(enable)) {
+			mode = cJSON_IsTrue(enable) ? 1 : 0;
+		}
+
 		if (cJSON_IsTrue(all)) {
-			// Включить/выключить все каналы
-			bool state = cJSON_IsTrue(enable);
-			for (int i = 0; i < 6; i++) {
-				if (state) {
-					PWM_Enable((PWM_Channel_t)i);
-				} else {
-					PWM_Disable((PWM_Channel_t)i);
-				}
+			switch (mode) {
+				case 0: PWM_DisableAll();     break;
+				case 1: PWM_EnableAll();      break;
+				case 3: PWM_EnableFadeAll();  break;
+				case 4: PWM_DisableFadeAll(); break;
+				default: break;
 			}
-			STM_LOG("All channels %s", state ? "enabled" : "disabled");
+			STM_LOG("All channels mode %d", mode);
 		}
 		else if (cJSON_IsArray(channels)) {
 			// Применить настройки для массива каналов
@@ -923,30 +943,47 @@ void action_commands(cJSON *obj)
 			for (int i = 0; i < count; i++) {
 				cJSON *ch = cJSON_GetArrayItem(channels, i);
 				if (cJSON_IsObject(ch)) {
-					cJSON *num = cJSON_GetObjectItemCaseSensitive(ch, "num");
-					cJSON *pwm = cJSON_GetObjectItemCaseSensitive(ch, "pwm");
-					cJSON *enabled = cJSON_GetObjectItemCaseSensitive(ch, "enabled");
-					
+					cJSON *num      = cJSON_GetObjectItemCaseSensitive(ch, "num");
+					cJSON *pwm      = cJSON_GetObjectItemCaseSensitive(ch, "pwm");
+					cJSON *enabled  = cJSON_GetObjectItemCaseSensitive(ch, "enabled");
+					cJSON *ch_mode  = cJSON_GetObjectItemCaseSensitive(ch, "mode");
+
 					if (cJSON_IsNumber(num)) {
 						int ch_num = num->valueint;
 						if (ch_num >= 0 && ch_num < 6) {
-							// Применяем PWM значение
 							if (cJSON_IsNumber(pwm)) {
 								PWM_SetValue((PWM_Channel_t)ch_num, pwm->valueint);
 							}
-							// Применяем состояние enabled
-							if (cJSON_IsBool(enabled)) {
-								if (cJSON_IsTrue(enabled)) {
-									PWM_Enable((PWM_Channel_t)ch_num);
-								} else {
-									PWM_Disable((PWM_Channel_t)ch_num);
-								}
+							int ch_m = -1;
+							if (cJSON_IsNumber(ch_mode)) {
+								ch_m = ch_mode->valueint;
+							} else if (cJSON_IsBool(enabled)) {
+								ch_m = cJSON_IsTrue(enabled) ? 1 : 0;
+							}
+							switch (ch_m) {
+								case 0: PWM_Disable((PWM_Channel_t)ch_num);     break;
+								case 1: PWM_Enable((PWM_Channel_t)ch_num);      break;
+								case 3: PWM_EnableFade((PWM_Channel_t)ch_num);  break;
+								case 4: PWM_DisableFade((PWM_Channel_t)ch_num); break;
+								default: break;
 							}
 						}
 					}
 				}
 			}
 			STM_LOG("Applied settings for %d channels", count);
+		}
+		break;
+	}
+	case 7: // Управление временем плавного перехода (fade duration)
+	{
+		cJSON *duration_ms = cJSON_GetObjectItemCaseSensitive(obj, "duration_ms");
+		if (cJSON_IsNumber(duration_ms)) {
+			int ms = duration_ms->valueint;
+			if (ms >= 50 && ms <= 10000) {
+				PWM_SetFadeDuration((uint16_t)ms);
+				STM_LOG("Fade duration set to %d ms", ms);
+			}
 		}
 		break;
 	}

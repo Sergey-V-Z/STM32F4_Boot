@@ -9,6 +9,18 @@
  * В этом классе реализован цикл управления и контроля шагового двигателя
  ****************************************************************************/
 
+// Включить драйвер (активировать EN) с учётом инверсии
+void extern_driver::enableDriver() {
+    GPIO_PinState state = (settings->res1 & FLAG_EN_INVERT) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+    HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, state);
+}
+
+// Выключить драйвер (деактивировать EN) с учётом инверсии
+void extern_driver::disableDriver() {
+    GPIO_PinState state = (settings->res1 & FLAG_EN_INVERT) ? GPIO_PIN_RESET : GPIO_PIN_SET;
+    HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, state);
+}
+
 void extern_driver::Init() {
     currentDriverStatus = DRIVER_STATUS_UNKNOWN;
     lastDriverCheckTime = 0;
@@ -88,7 +100,7 @@ void extern_driver::Init() {
     HAL_TIM_OC_Start_IT(TimCountAllSteps, TIM_CHANNEL_1);
     HAL_TIM_OC_Start_IT(TimCountAllSteps, TIM_CHANNEL_2);
 
-    HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET); // Выключение драйвера
+    disableDriver(); // Выключить драйвер с учётом инверсии
 
     checkDriverStatus();
     Parameter_update();
@@ -215,6 +227,8 @@ bool extern_driver::start(uint32_t steps, dir d) {
         PrevCounterENC = TimEncoder->Instance->CNT;
         countErrDir = 3;
         StatusTarget = statusTarget_t::inProgress;
+        Time = HAL_GetTick();
+        TimerIsStart = true;
 
         //uint32_t SlowdownDistance = 50; //steps/10; //1%
 
@@ -271,7 +285,7 @@ bool extern_driver::start(uint32_t steps, dir d) {
      	if(on_D0) StartDebounceTimer(D0_Pin);
      	if(on_D1) StartDebounceTimer(D1_Pin);
 
-        HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET); // Включение драйвера
+        enableDriver(); // Включить драйвер с учётом инверсии
         HAL_TIM_OC_Start_IT(TimFrequencies, ChannelClock);
 
         return true;
@@ -306,6 +320,8 @@ bool extern_driver::startForCall(dir d) {
 		}
 
         StatusTarget = statusTarget_t::inProgress;
+        Time = HAL_GetTick();
+        TimerIsStart = true;
 
         uint32_t brakingSteps = calculateBrakingSteps();
         uint32_t accelSteps = calculateAccelSteps();
@@ -348,7 +364,7 @@ bool extern_driver::startForCall(dir d) {
      	if (on_D0) StartDebounceTimer(D0_Pin);
      	if (on_D1) StartDebounceTimer(D1_Pin);
 
-        HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_RESET);
+        enableDriver(); // Включить драйвер с учётом инверсии
         HAL_TIM_OC_Start_IT(TimFrequencies, ChannelClock);
 
         return true;
@@ -358,7 +374,7 @@ bool extern_driver::startForCall(dir d) {
     }
 }
 
-void extern_driver::stop(statusTarget_t status) {
+void extern_driver::stop(statusTarget_t status, bool force_disable) {
     // Фиксируем незавершённый сегмент обратной связи ПЕРЕД остановкой.
     // Работает при любой причине стопа: OC (последний сегмент), EXTI (концевик), авария.
     // Защита через Status: повторный вызов stop() (например EXTI после OC) ничего не делает.
@@ -382,7 +398,10 @@ void extern_driver::stop(statusTarget_t status) {
     ignore_D1 = false;
 
     HAL_TIM_OC_Stop_IT(TimFrequencies, ChannelClock);
-    HAL_GPIO_WritePin(EN_GPIO_Port, EN_Pin, GPIO_PIN_SET); // Выключение драйвера
+    // Отключаем EN если: бит disable_on_stop установлен или force_disable=true (передано из TCP/UART команды)
+    if ((settings->res1 & FLAG_DISABLE_ON_STOP) || force_disable) {
+        disableDriver();
+    }
     //permission_calibrate = false;
     //permission_findHome = false;
 
@@ -691,6 +710,16 @@ bool extern_driver::Calibration_pool() {
 bool extern_driver::limit_switch_pool() {
 	if(Status != statusMotor::STOPPED)
 	{
+	    // Таймаут: если мотор не достиг цели за settings->TimeOut мс — аварийный стоп
+	    if (TimerIsStart && settings->TimeOut > 0) {
+	        if ((HAL_GetTick() - Time) > settings->TimeOut) {
+	            STM_LOG("Motor timeout after %lu ms", settings->TimeOut);
+	            TimerIsStart = false;
+	            stop(statusTarget_t::errMotion);
+	            return true;
+	        }
+	    }
+
 	    bool on_D0 = HAL_GPIO_ReadPin(D0_GPIO_Port, D0_Pin) == GPIO_PIN_SET;
 	    bool on_D1 = HAL_GPIO_ReadPin(D1_GPIO_Port, D1_Pin) == GPIO_PIN_SET;
 
