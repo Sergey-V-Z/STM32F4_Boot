@@ -269,19 +269,36 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
         case CMD_START_UPDATE:
         {
-            // получить метаданные из g_rxBuffer
-            meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
-            FWUpdateParams *update_params = (FWUpdateParams *)(g_rxBuffer + PACKET_HEADER_SIZE + sizeof(meta_t));
+            meta_t  meta_buf;
+            FWUpdateParams params_buf;
+            meta_t     *metadata     = NULL;
+            FWUpdateParams *update_params = NULL;
 
-            // Проверяем валидность метаданных
-            if (metadata->key_start != METADATA_KEY) {
-                STM_LOG("Invalid metadata key in backup update request");
-                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
-                return 5;
+            // Dual-protocol: новый (payload >= meta_t + FWUpdateParams) или старый (size/version в header)
+            if (data_size >= sizeof(meta_t) + sizeof(FWUpdateParams)) {
+                // Новый протокол: payload содержит meta_t + FWUpdateParams
+                metadata     = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
+                update_params = (FWUpdateParams *)(g_rxBuffer + PACKET_HEADER_SIZE + sizeof(meta_t));
+                if (metadata->key_start != METADATA_KEY) {
+                    STM_LOG("CMD_START_UPDATE: invalid metadata key");
+                    SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
+                    return 5;
+                }
+            } else {
+                // Старый совместимый протокол: fw_size в header.size, fw_version в header.variable
+                STM_LOG("CMD_START_UPDATE: legacy protocol (size=%lu, ver=%lu)", data_size, variable);
+                memset(&meta_buf, 0, sizeof(meta_buf));
+                meta_buf.key_start  = METADATA_KEY;
+                meta_buf.version    = variable;          // header.variable = версия
+                memset(&params_buf, 0, sizeof(params_buf));
+                params_buf.fw_size  = data_size;         // header.size = размер прошивки
+                params_buf.fw_crc   = 0;                 // CRC будет проверен в EndUpdate
+                metadata     = &meta_buf;
+                update_params = &params_buf;
             }
 
             // Проверяем, что размер прошивки не превышает максимально допустимый
-            if (update_params->fw_size > SPI_FLASH_MAIN_FW_SIZE) {
+            if (update_params->fw_size == 0 || update_params->fw_size > SPI_FLASH_MAIN_FW_SIZE) {
                 STM_LOG("Main firmware size exceeds maximum allowed: %lu bytes", update_params->fw_size);
                 SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
                 return 6;
@@ -340,11 +357,11 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
                 break;
             }
 
-            // Вычисляем и проверяем CRC блока
-            //crc = crc32_calculate(data_ptr, data_size, 0);
+            // Вычисляем CRC блока на стороне сервера (как в UD_v5)
+            uint32_t block_crc = crc32_calculate(data_ptr, data_size, 0);
 
             // Обрабатываем блок данных прошивки
-            result = FirmwareUpdate_ProcessDataBlock(variable, data_ptr, data_size);
+            result = FirmwareUpdate_ProcessDataBlock(variable, data_ptr, data_size, block_crc);
 
             if (result == UPDATE_ERROR_NONE) {
                 SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
@@ -490,7 +507,44 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
         case CMD_SECOND_FW_START:
         {
-            STM_LOG("Starting secondary firmware update");
+            // variable содержит номер ячейки, для которой нужно разрешить автообновление
+            uint32_t cell_num = variable;
+            STM_LOG("CMD_SECOND_FW_START: enabling auto-update for cell %lu", cell_num);
+
+            if (cell_num >= MAX_CELLS)
+            {
+                STM_LOG("CMD_SECOND_FW_START: invalid cell number %lu", cell_num);
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
+                break;
+            }
+
+            SecondaryFirmwareConfig cfg;
+            if (GetSecondaryFirmwareConfig(&cfg) == 0)
+            {
+                STM_LOG("CMD_SECOND_FW_START: failed to read secondary firmware config");
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_FLASH_FAILURE);
+                break;
+            }
+
+            // Проверяем что в ячейке есть прошивка
+            if (cfg.cells[cell_num].metadata.key_start != METADATA_KEY)
+            {
+                STM_LOG("CMD_SECOND_FW_START: cell %lu is empty", cell_num);
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_METADATA);
+                break;
+            }
+
+            cfg.cells[cell_num].load_permission = 1;
+
+            if (SetSecondaryFirmwareConfig(&cfg) == 0)
+            {
+                STM_LOG("CMD_SECOND_FW_START: failed to save config");
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_FLASH_FAILURE);
+                break;
+            }
+
+            STM_LOG("CMD_SECOND_FW_START: cell %lu enabled for auto-update", cell_num);
+            SendResponse(client, UPDATE_STATUS_IN_PROGRESS, UPDATE_ERROR_NONE);
             break;
         }
 

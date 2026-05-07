@@ -16,6 +16,8 @@ using namespace std;
 #include <externDriver.hpp>
 #include "device_API.h"
 
+extern osMutexId flashMutex;
+
 
 /*variables ---------------------------------------------------------*/
 extern settings_t settings;
@@ -292,7 +294,10 @@ string Command_execution(string in_str){
 				switch (arr_cmd[i].addres_var) {
 				case 0:
 					pMotor->SetAcceleration(arr_cmd[i].data_in);
-					mem_spi.Write(settings);
+					if (osMutexWait(flashMutex, 1000) == osOK) {
+						mem_spi.Write(settings);
+						osMutexRelease(flashMutex);
+					}
 					arr_cmd[i].err = " OK ";
 					break;
 				case 1:
@@ -320,15 +325,16 @@ string Command_execution(string in_str){
 				break;
 			case 8: // Direct
 				if(arr_cmd[i].addres_var == 0){
-					if((!arr_cmd[i].data_in) && pMotor->getStatusRotation() == statusMotor :: STOPPED)
+					if((!arr_cmd[i].data_in) && pMotor->getStatusRotation() == statusMotor :: STOPPED){
 						pMotor->SetDirection(dir::CW);
-					else if((arr_cmd[i].data_in) && pMotor->getStatusRotation() == statusMotor :: STOPPED)
+						arr_cmd[i].err = " OK ";
+					} else if((arr_cmd[i].data_in) && pMotor->getStatusRotation() == statusMotor :: STOPPED){
 						pMotor->SetDirection(dir::CCW);
-					else{
+						arr_cmd[i].err = " OK ";
+					} else{
 						arr_cmd[i].err = "motor not stopped";
 						arr_cmd[i].f_bool = true;
 					}
-					arr_cmd[i].err = " OK ";
 				} else {
 					arr_cmd[i].data_out = (uint32_t)pMotor->getStatusDirect();
 					arr_cmd[i].need_resp = true;
@@ -362,10 +368,13 @@ string Command_execution(string in_str){
 				}
 				break;
 			case 11: // save
-				mem_spi.W25qxx_EraseSector(0);
-				osDelay(5);
-				mem_spi.Write(settings);
-				arr_cmd[i].err = "OK";
+				if (osMutexWait(flashMutex, 1000) == osOK) {
+					bool ok = mem_spi.Write(settings);
+					osMutexRelease(flashMutex);
+					arr_cmd[i].err = ok ? "OK" : "flash write error";
+				} else {
+					arr_cmd[i].err = "flash busy";
+				}
 				break;
 			case 12: // Reboot
 				if(arr_cmd[i].data_in){
@@ -378,20 +387,40 @@ string Command_execution(string in_str){
 				arr_cmd[i].err = "OK";
 				break;
 			case 14: // IP
-				settings.saveIP.ip[arr_cmd[i].addres_var] = arr_cmd[i].data_in;
-				arr_cmd[i].err = "OK";
+				if (arr_cmd[i].addres_var < 4) {
+					settings.saveIP.ip[arr_cmd[i].addres_var] = (uint8_t)arr_cmd[i].data_in;
+					arr_cmd[i].err = "OK";
+				} else {
+					arr_cmd[i].err = "index out of range";
+					arr_cmd[i].f_bool = true;
+				}
 				break;
 			case 15: // MASK
-				settings.saveIP.mask[arr_cmd[i].addres_var] = arr_cmd[i].data_in;
-				arr_cmd[i].err = "OK";
+				if (arr_cmd[i].addres_var < 4) {
+					settings.saveIP.mask[arr_cmd[i].addres_var] = (uint8_t)arr_cmd[i].data_in;
+					arr_cmd[i].err = "OK";
+				} else {
+					arr_cmd[i].err = "index out of range";
+					arr_cmd[i].f_bool = true;
+				}
 				break;
 			case 16: // GW
-				settings.saveIP.gateway[arr_cmd[i].addres_var] = arr_cmd[i].data_in;
-				arr_cmd[i].err = "OK";
+				if (arr_cmd[i].addres_var < 4) {
+					settings.saveIP.gateway[arr_cmd[i].addres_var] = (uint8_t)arr_cmd[i].data_in;
+					arr_cmd[i].err = "OK";
+				} else {
+					arr_cmd[i].err = "index out of range";
+					arr_cmd[i].f_bool = true;
+				}
 				break;
 			case 17: // MAC
-				settings.MAC[arr_cmd[i].addres_var] = arr_cmd[i].data_in;
-				arr_cmd[i].err = "OK";
+				if (arr_cmd[i].addres_var < 6) {
+					settings.MAC[arr_cmd[i].addres_var] = (uint8_t)arr_cmd[i].data_in;
+					arr_cmd[i].err = "OK";
+				} else {
+					arr_cmd[i].err = "index out of range";
+					arr_cmd[i].f_bool = true;
+				}
 				break;
 			case CMD_SAVE_POINT:
 			    if(arr_cmd[i].addres_var == 0) {
@@ -493,15 +522,19 @@ string Command_execution(string in_str){
 			        arr_cmd[i].err = " OK ";
 			    }
 			    break;
-			case 31: // disable_on_stop: A0=записать (D=значение, N=1 сохранить в flash), A1=читать
+			case 31: // disable_mode: A0=записать (D=режим 0-3, N=1 сохранить в flash), A1=читать
+				// 0=выкл, 1=любой стоп, 2=только по шагам, 3=только концевик
 				if (arr_cmd[i].addres_var == 0) {
-					pMotor->setDisableOnStop(arr_cmd[i].data_in != 0);
+					pMotor->setDisableMode((uint8_t)(arr_cmd[i].data_in & 0x03U));
 					if (arr_cmd[i].data_in1 != 0) {
-						mem_spi.Write(settings);
+						if (osMutexWait(flashMutex, 1000) == osOK) {
+							mem_spi.Write(settings);
+							osMutexRelease(flashMutex);
+						}
 					}
 					arr_cmd[i].err = " OK ";
 				} else {
-					arr_cmd[i].data_out = pMotor->getDisableOnStop() ? 1U : 0U;
+					arr_cmd[i].data_out = (uint32_t)pMotor->getDisableMode();
 					arr_cmd[i].need_resp = true;
 					arr_cmd[i].err = " OK ";
 				}
@@ -511,7 +544,10 @@ string Command_execution(string in_str){
 				if (arr_cmd[i].addres_var == 0) {
 					pMotor->setEnInvert(arr_cmd[i].data_in != 0);
 					if (arr_cmd[i].data_in1 != 0) {
-						mem_spi.Write(settings);
+						if (osMutexWait(flashMutex, 1000) == osOK) {
+							mem_spi.Write(settings);
+							osMutexRelease(flashMutex);
+						}
 					}
 					arr_cmd[i].err = " OK ";
 				} else {

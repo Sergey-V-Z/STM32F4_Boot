@@ -30,13 +30,8 @@
 #include "flash_spi.h"
 #include "LED.h"
 #include "lwip.h"
-using namespace std;
-#include <string>
 #include "api.h"
-#include <iostream>
-#include <vector>
 #include "device_API.h"
-#include <iomanip>
 #include "tcp_server.h"
 #include "firmware_update.h"
 #include "protocol.h"
@@ -98,8 +93,7 @@ void devices_auto_discover_and_init();
 extern struct netif gnetif;
 
 // TCP_IP
-string strIP;
-string in_str;
+static char strIP[20];
 
 // обмен данными с компом
 extern uint8_t message_rx[message_RX_LENGTH];
@@ -216,7 +210,6 @@ void MX_FREERTOS_Init(void)
 	mulicom_uartHandle = osSemaphoreCreate(osSemaphore(mulicom_uart), 1);
 
 	/* USER CODE BEGIN RTOS_SEMAPHORES */
-	/* add semaphores, ... */
 	/* USER CODE END RTOS_SEMAPHORES */
 
 	/* USER CODE BEGIN RTOS_TIMERS */
@@ -286,8 +279,11 @@ void devices_auto_discover_and_init() {
     // Выводим информацию о найденных устройствах
     for (uint32_t i = 0; i < found_count && i < MAX_ADR_DEV; i++) {
         const char* type_name = "Unknown";
-        if (devices[i].TypePCB == LED_DRV) type_name = "LED_DRV";
-        else if (devices[i].TypePCB == PWR_LOAD) type_name = "PWR_LOAD";
+        if      (devices[i].TypePCB == LED_DRV)    type_name = "LED_DRV";
+        else if (devices[i].TypePCB == LED_DRV_v2) type_name = "LED_DRV_v2";
+        else if (devices[i].TypePCB == PCB_PWR)    type_name = "PCB_PWR";
+        else if (devices[i].TypePCB == MOSFET_3CH) type_name = "MOSFET_3CH";
+        else if (devices[i].TypePCB == MOSFET_6CH) type_name = "MOSFET_6CH";
         
         STM_LOG("  Device %u: Addr=%u, Type=%s", i, devices[i].Addr, type_name);
     }
@@ -392,9 +388,14 @@ void mainTask(void const *argument)
 
 		osDelay(10);
 
-		// обновление прошивки если нужно
-		FirmwareUpdate_Secondary(devices, pcs_dev);
-		// osDelay(10);
+		// обновление прошивки если нужно — не чаще одного раза в 30 секунд,
+		// чтобы не создавать конкуренцию за rxDataUART1Handle с exchange_channel_data_with_device
+		static uint32_t lastFwCheckTick = 0;
+		if ((HAL_GetTick() - lastFwCheckTick) >= 30000U)
+		{
+			lastFwCheckTick = HAL_GetTick();
+			FirmwareUpdate_Secondary(devices, pcs_dev);
+		}
 	}
 	/* USER CODE END mainTask */
 }
@@ -456,7 +457,8 @@ void eth_Task(void const *argument)
 	LED_IPadr.LEDon();
 	osDelay(1000);
 	LED_IPadr.LEDoff();
-	strIP = ip4addr_ntoa(&gnetif.ip_addr);
+	strncpy(strIP, ip4addr_ntoa(&gnetif.ip_addr), sizeof(strIP) - 1U);
+	strIP[sizeof(strIP) - 1U] = '\0';
 
 	// структуры для netcon
 	struct netconn *conn;
@@ -492,18 +494,22 @@ void eth_Task(void const *argument)
 							do
 							{
 								netbuf_data(netbuf, &in_data, &data_size); // get pointer and data size of the buffer
-								in_str.assign((char *)in_data, data_size); // copy in string
-								/*-----------------------------------------------------------------------------------------------------------------------------*/
-								STM_LOG("Get CMD %s", in_str.c_str());
+						/*-----------------------------------------------------------------------------------------------------------------------------*/
+						static char in_buf[512];
+						static char resp_buf[DEVICE_API_RESP_SIZE];
+						size_t safe_sz = (data_size < 511U) ? data_size : 511U;
+						memcpy(in_buf, in_data, safe_sz);
+						in_buf[safe_sz] = '\0';
+						STM_LOG("Get CMD %s", in_buf);
+						if (safe_sz > 0U)
+						{
+							resp_buf[0] = '\0';
+							Command_execution(in_buf, resp_buf, sizeof(resp_buf));
+							netconn_write(newconn, resp_buf, strlen(resp_buf), NETCONN_COPY);
+						}
 
-								if (!in_str.empty())
-								{
-									string resp = Сommand_execution(in_str);
-									netconn_write(newconn, resp.c_str(), resp.size(), NETCONN_COPY);
-								}
-
-							} while (netbuf_next(netbuf) >= 0);
-							netbuf_delete(netbuf);
+						} while (netbuf_next(netbuf) >= 0);
+						netbuf_delete(netbuf);
 						}
 						netconn_close(newconn);
 						netconn_delete(newconn);
@@ -763,9 +769,12 @@ void uart_Task(void const *argument)
 	for (;;)
 	{
 		// ожидать собщение
-		osMessageGet(rxDataUART2Handle, osWaitForever);
-		// uint32_t message_len = strlen((char*) message_rx);
-		// HAL_UART_Transmit(bridge_sett.RS485, message_rx, message_len, HAL_MAX_DELAY);
+		osEvent evt = osMessageGet(rxDataUART2Handle, 5000);
+
+		if (evt.status == osEventMessage)
+		{
+		// мигание LED при получении сообщения по UART
+		LED_error.LEDon(1);
 
 		// парсим  json
 		cJSON *json = cJSON_Parse((char *)message_rx);
@@ -854,6 +863,9 @@ void uart_Task(void const *argument)
 		{
 			STM_LOG("Invalid JSON");
 		}
+		} else if (evt.status == osEventTimeout) {
+			// таймаут - продолжаем ожидание
+		}
 		osDelay(10);
 	}
 	/* USER CODE END uart_Task */
@@ -902,55 +914,20 @@ void action_ip(cJSON *obj, bool save)
 	// Обработка IP
 	if ((j_setIP != NULL) && cJSON_IsTrue(j_setIP) && (j_IP != NULL) && cJSON_IsString(j_IP))
 	{
-		char sep = '.';
-		std::string s = j_IP->valuestring;
-		if (!s.empty())
+		const char *s = j_IP->valuestring;
+		if (s && *s)
 		{
-			std::string sepIP[4];
-			int i = 0;
-			bool parseSuccess = true;
-
-			for (size_t p = 0, q = 0; (p != s.npos) && (i < 4); p = q, i++)
+			unsigned int a, b, c, d;
+			if (sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 &&
+				a <= 255U && b <= 255U && c <= 255U && d <= 255U)
 			{
-				sepIP[i] = s.substr(p + (p != 0),
-									(q = s.find(sep, p + 1)) - p - (p != 0));
-			}
-
-			// Проверка, что удалось разделить строку на 4 части
-			if (i == 4)
-			{
-				uint8_t ipParts[4] = {0};
-				for (i = 0; i < 4; i++)
-				{
-					char *endptr = nullptr;
-					long value = strtol(sepIP[i].c_str(), &endptr, 10);
-
-					// Проверка успешности преобразования и диапазона значений
-					if (*endptr != '\0' || value < 0 || value > 255)
-					{
-						parseSuccess = false;
-						break;
-					}
-					ipParts[i] = (uint8_t)value;
-				}
-
-				if (parseSuccess)
-				{
-					// Сохраняем новые значения только если парсинг успешен
-					for (i = 0; i < 4; i++)
-					{
-						settings.saveIP.ip[i] = ipParts[i];
-					}
-					settingsChanged = true;
-				}
-				else
-				{
-					STM_LOG(LOG_ERR "Invalid IP address format");
-				}
+				settings.saveIP.ip[0] = (uint8_t)a; settings.saveIP.ip[1] = (uint8_t)b;
+				settings.saveIP.ip[2] = (uint8_t)c; settings.saveIP.ip[3] = (uint8_t)d;
+				settingsChanged = true;
 			}
 			else
 			{
-				STM_LOG(LOG_ERR "IP address must have 4 octets");
+				STM_LOG(LOG_ERR "Invalid IP address format");
 			}
 		}
 	}
@@ -958,55 +935,21 @@ void action_ip(cJSON *obj, bool save)
 	// Обработка MAC
 	if ((j_setMAC != NULL) && cJSON_IsTrue(j_setMAC) && (j_MAC != NULL) && cJSON_IsString(j_MAC))
 	{
-		char sep = ':';
-		std::string s = j_MAC->valuestring;
-		if (!s.empty())
+		const char *s = j_MAC->valuestring;
+		if (s && *s)
 		{
-			std::string sepMAC[6];
-			int i = 0;
-			bool parseSuccess = true;
-
-			for (size_t p = 0, q = 0; (p != s.npos) && (i < 6); p = q, i++)
+			unsigned int a,b,c,d,e,f;
+			if (sscanf(s, "%x:%x:%x:%x:%x:%x", &a,&b,&c,&d,&e,&f) == 6 &&
+				a<=255U && b<=255U && c<=255U && d<=255U && e<=255U && f<=255U)
 			{
-				sepMAC[i] = s.substr(p + (p != 0),
-									 (q = s.find(sep, p + 1)) - p - (p != 0));
-			}
-
-			// Проверка, что удалось разделить строку на 6 частей
-			if (i == 6)
-			{
-				uint8_t macParts[6] = {0};
-				for (i = 0; i < 6; i++)
-				{
-					char *endptr = nullptr;
-					long value = strtol(sepMAC[i].c_str(), &endptr, 16);
-
-					// Проверка успешности преобразования и диапазона значений
-					if (*endptr != '\0' || value < 0 || value > 255)
-					{
-						parseSuccess = false;
-						break;
-					}
-					macParts[i] = (uint8_t)value;
-				}
-
-				if (parseSuccess)
-				{
-					// Сохраняем новые значения только если парсинг успешен
-					for (i = 0; i < 6; i++)
-					{
-						settings.MAC[i] = macParts[i];
-					}
-					settingsChanged = true;
-				}
-				else
-				{
-					STM_LOG(LOG_ERR "Invalid MAC address format");
-				}
+				settings.MAC[0]=(uint8_t)a; settings.MAC[1]=(uint8_t)b;
+				settings.MAC[2]=(uint8_t)c; settings.MAC[3]=(uint8_t)d;
+				settings.MAC[4]=(uint8_t)e; settings.MAC[5]=(uint8_t)f;
+				settingsChanged = true;
 			}
 			else
 			{
-				STM_LOG(LOG_ERR "MAC address must have 6 octets");
+				STM_LOG(LOG_ERR "Invalid MAC address format");
 			}
 		}
 	}
@@ -1014,55 +957,20 @@ void action_ip(cJSON *obj, bool save)
 	// Обработка GATEWAY
 	if ((j_setGATEWAY != NULL) && cJSON_IsTrue(j_setGATEWAY) && (j_GATEWAY != NULL) && cJSON_IsString(j_GATEWAY))
 	{
-		char sep = '.';
-		std::string s = j_GATEWAY->valuestring;
-		if (!s.empty())
+		const char *s = j_GATEWAY->valuestring;
+		if (s && *s)
 		{
-			std::string sepGATEWAY[4];
-			int i = 0;
-			bool parseSuccess = true;
-
-			for (size_t p = 0, q = 0; (p != s.npos) && (i < 4); p = q, i++)
+			unsigned int a, b, c, d;
+			if (sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 &&
+				a <= 255U && b <= 255U && c <= 255U && d <= 255U)
 			{
-				sepGATEWAY[i] = s.substr(p + (p != 0),
-										 (q = s.find(sep, p + 1)) - p - (p != 0));
-			}
-
-			// Проверка, что удалось разделить строку на 4 части
-			if (i == 4)
-			{
-				uint8_t gatewayParts[4] = {0};
-				for (i = 0; i < 4; i++)
-				{
-					char *endptr = nullptr;
-					long value = strtol(sepGATEWAY[i].c_str(), &endptr, 10);
-
-					// Проверка успешности преобразования и диапазона значений
-					if (*endptr != '\0' || value < 0 || value > 255)
-					{
-						parseSuccess = false;
-						break;
-					}
-					gatewayParts[i] = (uint8_t)value;
-				}
-
-				if (parseSuccess)
-				{
-					// Сохраняем новые значения только если парсинг успешен
-					for (i = 0; i < 4; i++)
-					{
-						settings.saveIP.gateway[i] = gatewayParts[i];
-					}
-					settingsChanged = true;
-				}
-				else
-				{
-					STM_LOG(LOG_ERR "Invalid gateway address format");
-				}
+				settings.saveIP.gateway[0] = (uint8_t)a; settings.saveIP.gateway[1] = (uint8_t)b;
+				settings.saveIP.gateway[2] = (uint8_t)c; settings.saveIP.gateway[3] = (uint8_t)d;
+				settingsChanged = true;
 			}
 			else
 			{
-				STM_LOG(LOG_ERR "Gateway address must have 4 octets");
+				STM_LOG(LOG_ERR "Invalid gateway address format");
 			}
 		}
 	}
@@ -1070,55 +978,20 @@ void action_ip(cJSON *obj, bool save)
 	// Обработка MASK
 	if ((j_setMASK != NULL) && cJSON_IsTrue(j_setMASK) && (j_MASK != NULL) && cJSON_IsString(j_MASK))
 	{
-		char sep = '.';
-		std::string s = j_MASK->valuestring;
-		if (!s.empty())
+		const char *s = j_MASK->valuestring;
+		if (s && *s)
 		{
-			std::string sepMASK[4];
-			int i = 0;
-			bool parseSuccess = true;
-
-			for (size_t p = 0, q = 0; (p != s.npos) && (i < 4); p = q, i++)
+			unsigned int a, b, c, d;
+			if (sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 &&
+				a <= 255U && b <= 255U && c <= 255U && d <= 255U)
 			{
-				sepMASK[i] = s.substr(p + (p != 0),
-									  (q = s.find(sep, p + 1)) - p - (p != 0));
-			}
-
-			// Проверка, что удалось разделить строку на 4 части
-			if (i == 4)
-			{
-				uint8_t maskParts[4] = {0};
-				for (i = 0; i < 4; i++)
-				{
-					char *endptr = nullptr;
-					long value = strtol(sepMASK[i].c_str(), &endptr, 10);
-
-					// Проверка успешности преобразования и диапазона значений
-					if (*endptr != '\0' || value < 0 || value > 255)
-					{
-						parseSuccess = false;
-						break;
-					}
-					maskParts[i] = (uint8_t)value;
-				}
-
-				if (parseSuccess)
-				{
-					// Сохраняем новые значения только если парсинг успешен
-					for (i = 0; i < 4; i++)
-					{
-						settings.saveIP.mask[i] = maskParts[i];
-					}
-					settingsChanged = true;
-				}
-				else
-				{
-					STM_LOG(LOG_ERR "Invalid subnet mask format");
-				}
+				settings.saveIP.mask[0] = (uint8_t)a; settings.saveIP.mask[1] = (uint8_t)b;
+				settings.saveIP.mask[2] = (uint8_t)c; settings.saveIP.mask[3] = (uint8_t)d;
+				settingsChanged = true;
 			}
 			else
 			{
-				STM_LOG(LOG_ERR "Subnet mask must have 4 octets");
+				STM_LOG(LOG_ERR "Invalid subnet mask format");
 			}
 		}
 	}
@@ -1126,54 +999,7 @@ void action_ip(cJSON *obj, bool save)
 	// Обработка DNS
 	if ((j_setDNS != NULL) && cJSON_IsTrue(j_setDNS) && (j_DNS != NULL) && cJSON_IsString(j_DNS))
 	{
-		char sep = '.';
-		std::string s = j_DNS->valuestring;
-		if (!s.empty())
-		{
-			std::string sepDNS[4];
-			int i = 0;
-			bool parseSuccess = true;
-
-			for (size_t p = 0, q = 0; (p != s.npos) && (i < 4); p = q, i++)
-			{
-				sepDNS[i] = s.substr(p + (p != 0),
-									 (q = s.find(sep, p + 1)) - p - (p != 0));
-			}
-
-			// Проверка, что удалось разделить строку на 4 части
-			if (i == 4)
-			{
-				// Закомментировано, так как в оригинальном коде это не реализовано
-				// Оставляем для совместимости с исходным кодом
-				// uint8_t dnsParts[4] = {0};
-				// for (i = 0; i < 4; i++) {
-				//    char* endptr = nullptr;
-				//    long value = strtol(sepDNS[i].c_str(), &endptr, 10);
-				//
-				//    // Проверка успешности преобразования и диапазона значений
-				//    if (*endptr != '\0' || value < 0 || value > 255) {
-				//        parseSuccess = false;
-				//        break;
-				//    }
-				//    dnsParts[i] = (uint8_t)value;
-				//}
-				//
-				// if (parseSuccess) {
-				//    // Сохраняем новые значения только если парсинг успешен
-				//    //settings.[0] = dnsParts[0];
-				//    //settings.[1] = dnsParts[1];
-				//    //settings.[2] = dnsParts[2];
-				//    //settings.[3] = dnsParts[3];
-				//    settingsChanged = true;
-				//} else {
-				//    STM_LOG(LOG_ERR "Invalid DNS address format");
-				//}
-			}
-			else
-			{
-				STM_LOG(LOG_ERR "DNS address must have 4 octets");
-			}
-		}
+		(void)j_DNS; /* DNS не реализован */
 	}
 
 	// Обработка DHCP
@@ -1400,28 +1226,29 @@ void action_settings_data(cJSON *obj)
 	cJSON_AddNumberToObject(j_all_settings_obj, "type_data", 4);
 
 	// настройки ip
-	string srtIP_to_host = std::to_string(settings.saveIP.ip[0]) + "." +
-						   std::to_string(settings.saveIP.ip[1]) + "." +
-						   std::to_string(settings.saveIP.ip[2]) + "." +
-						   std::to_string(settings.saveIP.ip[3]);
-	cJSON_AddStringToObject(obj_ip, "IP", srtIP_to_host.c_str());
+	char srtIP_to_host[20];
+	snprintf(srtIP_to_host, sizeof(srtIP_to_host), "%u.%u.%u.%u",
+			 settings.saveIP.ip[0], settings.saveIP.ip[1],
+			 settings.saveIP.ip[2], settings.saveIP.ip[3]);
+	cJSON_AddStringToObject(obj_ip, "IP", srtIP_to_host);
 
-	char srtMAC_to_host[100];
-	sprintf(srtMAC_to_host, "%x:%x:%x:%x:%x:%x", settings.MAC[0], settings.MAC[1], settings.MAC[2],
-			settings.MAC[3], settings.MAC[4], settings.MAC[5]);
+	char srtMAC_to_host[20];
+	snprintf(srtMAC_to_host, sizeof(srtMAC_to_host), "%x:%x:%x:%x:%x:%x",
+			 settings.MAC[0], settings.MAC[1], settings.MAC[2],
+			 settings.MAC[3], settings.MAC[4], settings.MAC[5]);
 	cJSON_AddStringToObject(obj_ip, "MAC", srtMAC_to_host);
 
-	string srtGATEWAY_to_host = std::to_string(settings.saveIP.gateway[0]) + "." +
-								std::to_string(settings.saveIP.gateway[1]) + "." +
-								std::to_string(settings.saveIP.gateway[2]) + "." +
-								std::to_string(settings.saveIP.gateway[3]);
-	cJSON_AddStringToObject(obj_ip, "GATEWAY", srtGATEWAY_to_host.c_str());
+	char srtGATEWAY_to_host[20];
+	snprintf(srtGATEWAY_to_host, sizeof(srtGATEWAY_to_host), "%u.%u.%u.%u",
+			 settings.saveIP.gateway[0], settings.saveIP.gateway[1],
+			 settings.saveIP.gateway[2], settings.saveIP.gateway[3]);
+	cJSON_AddStringToObject(obj_ip, "GATEWAY", srtGATEWAY_to_host);
 
-	string srtMASK_to_host = std::to_string(settings.saveIP.mask[0]) + "." +
-							 std::to_string(settings.saveIP.mask[1]) + "." +
-							 std::to_string(settings.saveIP.mask[2]) + "." +
-							 std::to_string(settings.saveIP.mask[3]);
-	cJSON_AddStringToObject(obj_ip, "MASK", srtMASK_to_host.c_str());
+	char srtMASK_to_host[20];
+	snprintf(srtMASK_to_host, sizeof(srtMASK_to_host), "%u.%u.%u.%u",
+			 settings.saveIP.mask[0], settings.saveIP.mask[1],
+			 settings.saveIP.mask[2], settings.saveIP.mask[3]);
+	cJSON_AddStringToObject(obj_ip, "MASK", srtMASK_to_host);
 
 	cJSON_AddStringToObject(obj_ip, "DNS", "0.0.0.0");
 

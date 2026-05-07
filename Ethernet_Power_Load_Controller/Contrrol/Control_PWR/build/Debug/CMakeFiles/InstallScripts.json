@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/Radio/Jobe/STM32F4_Boot/Ethernet_Power_Load_Controller/Contrrol/Control_PWR/build/Debug/cmake_install.cmake",
+		"D:/Radio/Jobe/STM32F4_Boot/Ethernet_Power_Load_Controller/Contrrol/Control_PWR/build/Debug/cmake/stm32cubemx/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

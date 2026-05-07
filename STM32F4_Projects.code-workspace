@@ -22,6 +22,15 @@
 		},
 		{
 			"path": "UD_v5"
+		},
+		{
+			"path": "../Ethernet_Power_Load_Controller/firmware_old/chanels_PWR/chanels"
+		},
+		{
+			"path": "../STM32F103_Boot/driverPCB_v2_boot"
+		},
+		{
+			"path": "../STM32F103_Boot/boot"
 		}
 	],
 	"settings": {

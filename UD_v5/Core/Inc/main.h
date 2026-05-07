@@ -74,11 +74,16 @@ extern DMA_HandleTypeDef hdma_usart2_rx;
 #define DBG_PORT huart2
 #define LOG_TX_BUF_SIZE 2048
 
-#define CURENT_VERSION 48
+#define CURENT_VERSION 49
 
 // Биты поля res1 в settings_t
-#define FLAG_DISABLE_ON_STOP  (1U << 0)  // бит 0: отключать EN при любом стопе (0=держать под током, 1=отключать)
+// бит 0: FLAG_DISABLE_ON_STOP — устарел, используется только для миграции v48→v49
+// бит 1: FLAG_EN_INVERT
+// биты 3:2: DISABLE_MODE (0=выкл, 1=любой стоп, 2=только по шагам, 3=только концевик)
+#define FLAG_DISABLE_ON_STOP  (1U << 0)  // устарел (миграция)
 #define FLAG_EN_INVERT        (1U << 1)  // бит 1: инверсия EN (0=активный LOW, 1=активный HIGH)
+#define DISABLE_MODE_MASK     (3U << 2)  // биты 3:2: режим отключения EN
+#define DISABLE_MODE_SHIFT    2          // сдвиг для DISABLE_MODE
 #define ID_CTRL 2
 #define NAME FIRMWARE_NAME
 

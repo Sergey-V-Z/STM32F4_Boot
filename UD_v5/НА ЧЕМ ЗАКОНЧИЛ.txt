@@ -1,3 +1,55 @@
 Проверка метаданных
 проверка загрузчика на установку прошивки
 написание программы управления загрузкой
+
+========== ПЛАН ДОРАБОТОК UD_v5 — ОСТАЛОСЬ ==========
+
+Этапы 1-4 выполнены и проверены (сборка OK, 15.04.2026).
+
+--- Этап 5: Watchdog движка ---
+Файл: Core/Src/externDriver.cpp
+Функция: limit_switch_pool()
+Задача: добавить проверку зависания движка:
+  if (Status != statusMotor::STOPPED && HAL_GetTick() - Time > watchdog)
+      stop(errMotion);
+(поле watchdog уже есть в settings_t, Time — метка старта движения)
+
+--- Этап 6: Сетевая безопасность ---
+
+6.1 Ограничение размера входного буфера (MainTask, freertos.cpp):
+  Перед in_str.assign((char*)in_data, data_size)
+  добавить: if (data_size > 512) data_size = 512;
+  (защита от переполнения памяти при аномально большом пакете)
+
+6.2 OTA — найденные баги (после полного прочтения кода):
+
+  БАГ 1 — CRC блока проверяется сам с собой (tcp_server.cpp, CMD_FIRMWARE_DATA):
+    crc = crc32_calculate(data_ptr, data_size, 0);   // вычислено на сервере
+    FirmwareUpdate_ProcessDataBlock(..., crc);        // и оно же передаётся как "ожидаемое"
+    → FirmwareUpdate_ProcessDataBlock сравнивает crc с crc32_calculate(...) — всегда совпадёт
+    ИСПРАВЛЕНИЕ: убрать вычисление crc в tcp_server.cpp, брать CRC из заголовка пакета
+    (клиент должен отправлять CRC блока в заголовке, например в поле block_number или отдельном поле)
+
+  БАГ 2 — FirmwareUpdate_EndUpdate() после успеха запускает код сброса вместо OK:
+    После успешной проверки CRC прошивки функция выполняет блок
+    идентичный FirmwareUpdate_AbortUpdate() — сбрасывает контекст с error=UPDATE_ERROR_ABORT
+    ИСПРАВЛЕНИЕ: после записи boot_data во внутреннюю flash установить
+    g_updateContext.status = UPDATE_STATUS_COMPLETE (не IDLE!) и вернуть UPDATE_ERROR_NONE
+
+  БАГ 3 — Вычисление номера сектора для стирания BOOT_DATA некорректно:
+    eraseInit.Sector = (BOOT_DATA_ADDRESS - FLASH_BASE) / FLASH_SECTOR_SIZE;
+    У STM32F407 размеры секторов НЕ одинаковые (16KB×4, 64KB×1, 128KB×7)
+    деление на FLASH_SECTOR_SIZE (128KB) даёт неверный номер для первых секторов
+    ИСПРАВЛЕНИЕ: вычислять номер сектора через таблицу адресов секторов STM32F407
+
+  ЗАМЕЧАНИЕ — FirmwareUpdateTask пустая (firmware_update.cpp):
+    Задача создаётся через FirmwareUpdate_StartTask() но тело цикла пустое —
+    статус UPDATE_STATUS_READY_REBOOT не обрабатывается
+    Сейчас перезагрузка идёт через CMD_REBOOT напрямую в tcp_server.cpp — это работает
+    Задачу можно не запускать (она закомментирована в freertos.cpp — правильно)
+
+--- Исключённые пункты (не реализовывать) ---
+- Разделение settings_t на config+runtime — нельзя менять структуру
+- StartSettings всегда false (6.3) — старая функциональность, оставить
+- step_inf без таймера обратной связи (7.4) — по замыслу
+

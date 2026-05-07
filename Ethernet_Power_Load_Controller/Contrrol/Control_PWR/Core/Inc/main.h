@@ -42,7 +42,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000006 // Версия
+#define FIRMWARE_VERSION    0x00000008 // Версия
 #define FIRMWARE_NAME       "Control PWR"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
 
@@ -312,12 +312,14 @@ typedef struct {
 #pragma pack(pop)
 
 typedef enum {
-	NoInit = 0,
-	LED_DRV = 10,
-    LED_DRV_v2 = 11,
-	PCB_PWR = 20,
-	MOSFET_6CH = 30,
+	NoInit      = 0,
+	LED_DRV     = 10,
+	LED_DRV_v2  = 11,
+	PCB_PWR     = 20,
+	MOSFET_3CH  = 30,   // chanels_pwr: 3-канальная плата (STM32F030, 8-bit UART, count_ch=3)
+	MOSFET_6CH  = 31,   // зарезервировано (не используется)
 }PCBType;
+// Примечание: driverPCB_v2_boot имеет TYPE_PCB=11 → LED_DRV_v2
 
 // Структура заголовка UART протокола: [address][cmd][size]
 typedef struct

@@ -362,8 +362,23 @@ HAL_StatusTypeDef uart_send_packet(UART_HandleTypeDef *huart, uint8_t addr, uint
     UART_tx[size - 2] = crc & 0xFF;
     UART_tx[size - 1] = (crc >> 8) & 0xFF;
 
-    // заменить на дма возможно тут задержка
-    return HAL_UART_Transmit(huart, UART_tx, size, 100);
+    /* DMA TX: аппаратура сама подаёт байты без участия CPU — никаких пробелов
+     * между байтами даже при вытеснении задачи планировщиком.
+     * Ждём TC через опрос gState (volatile поле HAL) с осовобождением CPU. */
+    HAL_StatusTypeDef ret = HAL_UART_Transmit_DMA(huart, UART_tx, size);
+    if (ret != HAL_OK)
+        return ret;
+
+    /* Ждём завершения TX по gState: HAL_UART_GetState() не подходит —
+     * она ORит gState|RxState, и бит 0x20 есть и в READY и в BUSY_RX,
+     * что даёт ложное срабатывание маски BUSY_TX при работающем RX DMA. */
+    uint32_t tickstart = HAL_GetTick();
+    while (huart->gState != HAL_UART_STATE_READY) {
+        if (HAL_GetTick() - tickstart >= 100U)
+            return HAL_TIMEOUT;
+        osDelay(1);
+    }
+    return HAL_OK;
 }
 
 // Получение пакета из буфера (возвращает длину полезных данных, либо 0 если ошибка CRC/размера)
@@ -394,7 +409,7 @@ uint16_t uart_parse_packet(uint8_t *buf, uint16_t buf_len, Header_t *header, uin
 
   if (data && data_len)
   {
-    *data_len = data_size;
+    *data_len = data_size - 5; // payload only: total - addr(1) - cmd(1) - size(1) - crc(2)
     *data = &buf[3];
   }
   return data_size;
@@ -440,84 +455,97 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
     return 0;
   }
 
+  STM_LOG("Scanning %d addresses starting from %d", size_dev, (int)START_ADR_DEV);
+
   // сканируем
   for (uint8_t i = 0; i < size_dev; ++i) {
     uint8_t addr = START_ADR_DEV + i;
 
-    uint8_t tx_buf[8] = {0};
+    STM_LOG("  [%d] Sending status request to addr %d", i, addr);
 
-    // Обновленный вызов uart_send_packet: теперь требуется указать UART_HandleTypeDef*
-    HAL_StatusTypeDef status = uart_send_packet(&huart1, addr, status, tx_buf, sizeof(tx_buf));
-    if (status != HAL_OK) {
+    // Сброс очереди перед отправкой — убираем остатки предыдущего ответа
+    { osEvent stale; do { stale = osMessageGet(rxDataUART1Handle, 0); } while (stale.status == osEventMessage); }
+
+    HAL_StatusTypeDef send_result = uart_send_packet(&huart1, addr, (uint8_t)cmd_t::status, nullptr, 0);
+    if (send_result != HAL_OK) {
+      STM_LOG(LOG_ERR "  [%d] uart_send_packet failed (HAL error %d)", i, (int)send_result);
       continue;
     }
 
     osEvent evt = osMessageGet(rxDataUART1Handle, 50);
     if (evt.status != osEventMessage) {
+      STM_LOG("  [%d] No response from addr %d (evt.status=0x%02X)", i, addr, (unsigned)evt.status);
       continue;
     }
 
-    uint16_t rx_size = evt.value.v;
+    uint16_t rx_size = (uint16_t)evt.value.v;
+    STM_LOG("  [%d] Got %d bytes from addr %d", i, rx_size, addr);
 
     Header_t header;
     if (!uart_parse_packet(message_rx, rx_size, &header, &rx_data, &data_len)) {
+      STM_LOG(LOG_ERR "  [%d] Parse failed: rx[0..4]=%02X %02X %02X %02X %02X",
+              i, message_rx[0], message_rx[1], message_rx[2], message_rx[3], message_rx[4]);
       continue;
     }
 
-    // Проверка: адрес в пакете должен совпадать с ожидаемым адресом
+    STM_LOG("  [%d] Parsed: addr=%d cmd=%d size=%d data_len=%d",
+            i, header.address, header.cmd, header.size, data_len);
+
     if (header.address != addr) {
-      STM_LOG(LOG_ERR "Address mismatch: expected %d, got %d", addr, header.address);
+      STM_LOG(LOG_ERR "  [%d] Address mismatch: expected %d, got %d", i, addr, header.address);
       continue;
     }
 
-    if (header.cmd != status) {
-      STM_LOG(LOG_ERR "Unexpected command %d for address %d", header.cmd, addr);
+    if (header.cmd != (uint8_t)cmd_t::status) {
+      STM_LOG(LOG_ERR "  [%d] Unexpected cmd=%d (expected %d)", i, header.cmd, (uint8_t)cmd_t::status);
       continue;
     }
 
-    if (rx_size < data_len + 5) {
-      STM_LOG(LOG_ERR "Invalid data size %d for address %d", rx_size, addr);
-      continue;
-    }
-
-    if(rx_data == nullptr)
+    if (rx_data == nullptr || data_len < sizeof(secondary_status_t))
     {
+      STM_LOG(LOG_ERR "  [%d] Payload too small: data_len=%d, need=%d",
+              i, data_len, (int)sizeof(secondary_status_t));
     	continue;
     }
 
-    secondary_status_t sec_status = *(secondary_status_t *)&rx_data;
+    secondary_status_t sec_status;
+    memcpy(&sec_status, rx_data, sizeof(secondary_status_t));
 
-    // Проверка режима работы устройства
+    STM_LOG("  [%d] Status: key=0x%08X type_pcb=%lu count_ch=%lu mode=0x%08X",
+            i, (unsigned)sec_status.key, sec_status.type_pcb, sec_status.count_ch, (unsigned)sec_status.mode);
+
     if (sec_status.mode != MODE_APP) {
-      STM_LOG(LOG_WARN "Device at addr %d is in bootloader mode (mode=%d), skipping", addr, sec_status.mode);
+      STM_LOG(LOG_WARN "  [%d] Addr %d is in bootloader mode, skipping", i, addr);
       continue;
     }
 
-    dev[i].Addr = addr;
-    dev[i].AddrFromDev = header.address;
-    dev[i].TypePCB = (PCBType)sec_status.type_pcb;
-    //dev[i].StatFlash = rx_data[2];
+    dev[found_count].Addr = addr;
+    dev[found_count].AddrFromDev = header.address;
+    dev[found_count].TypePCB = (PCBType)sec_status.type_pcb;
 
     if (sec_status.count_ch == 6) {
-      dev[i].ch[0].used = true;
-      dev[i].ch[1].used = true;
-      dev[i].ch[2].used = true;
-      dev[i].ch[3].used = true;
-      dev[i].ch[4].used = true;
-      dev[i].ch[5].used = true;
-    }else{
-      dev[i].ch[0].used = true;
-      dev[i].ch[1].used = true;
-      dev[i].ch[2].used = true;
-      dev[i].ch[3].used = false;
-      dev[i].ch[4].used = false;
-      dev[i].ch[5].used = false;
+      dev[found_count].ch[0].used = true;
+      dev[found_count].ch[1].used = true;
+      dev[found_count].ch[2].used = true;
+      dev[found_count].ch[3].used = true;
+      dev[found_count].ch[4].used = true;
+      dev[found_count].ch[5].used = true;
+    } else {
+      dev[found_count].ch[0].used = true;
+      dev[found_count].ch[1].used = true;
+      dev[found_count].ch[2].used = true;
+      dev[found_count].ch[3].used = false;
+      dev[found_count].ch[4].used = false;
+      dev[found_count].ch[5].used = false;
     }
 
+    STM_LOG("  [%d] Device FOUND: addr=%d TypePCB=%d count_ch=%lu",
+            i, addr, (int)dev[found_count].TypePCB, sec_status.count_ch);
     found_count++;
   }
   
   osMutexRelease(deviceMutexHandle);
+
   return found_count;
 }
 
@@ -644,9 +672,13 @@ uint8_t exchange_channel_data_with_device(DEV_t *dev)
     return 0;
   }
 
+  // Сброс очереди перед отправкой — убираем остатки предыдущего обмена
+  { osEvent stale; do { stale = osMessageGet(rxDataUART1Handle, 0); } while (stale.status == osEventMessage); }
+
   //отправить данные devices[var]
   if(send_pwm_ch_to_dev(dev) != HAL_OK)
   {
+    osMutexRelease(deviceMutexHandle);
     return 0;
   }
 
@@ -664,6 +696,7 @@ uint8_t exchange_channel_data_with_device(DEV_t *dev)
 
     if (header.cmd != cmd_t::data)
     {
+      osMutexRelease(deviceMutexHandle);
       return 0; // неверная команда
     }
 
@@ -671,14 +704,14 @@ uint8_t exchange_channel_data_with_device(DEV_t *dev)
       // разборка данных
       deserialize_buff_to_dev(rx_data, dev);
     }else{
+      osMutexRelease(deviceMutexHandle);
       return 0;
     }
-
-
 
   }else if (evt.status == osEventTimeout) {
     // В случае тайм-аута, просто выводим информационное сообщение и продолжаем
     STM_LOG(LOG_WARN "Timeout waiting for response");
+    osMutexRelease(deviceMutexHandle);
     return 0;
   }
 
@@ -693,12 +726,20 @@ void GetSecondaryBoardMeta(DEV_t *dev, meta_t* metadata)
         return;
     }
 
+    // Захватываем тот же мьютекс, что использует exchange_channel_data_with_device,
+    // чтобы исключить гонку на очереди rxDataUART1Handle
+    if (deviceMutexHandle == nullptr || osMutexWait(deviceMutexHandle, 1000) != osOK) {
+        return;
+    }
+
     // Отправляем команду на вторичную плату для получения метаданных
     cmd_t cmd = cmd_t::metadata_current;
     uart_send_packet(&huart1, dev->Addr, cmd, nullptr, 0);
 
     // Ожидаем ответ
     osEvent evt = osMessageGet(rxDataUART1Handle, 100); // ждем ответ
+
+    osMutexRelease(deviceMutexHandle);
 
     if (evt.status == osEventMessage) {
         uint32_t size = evt.value.v;
@@ -709,8 +750,8 @@ void GetSecondaryBoardMeta(DEV_t *dev, meta_t* metadata)
 
         uart_parse_packet(message_rx, size, &header, &rx_data, &rx_data_size); // парсим пакет
 
-        if (header.cmd != cmd_t::data) {
-            return; // неверная команда
+        if (header.cmd != cmd_t::metadata_current) {
+            return; // неверная команда (ожидаем metadata_current)
         }
 
         if (rx_data != nullptr) {

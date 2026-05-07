@@ -638,12 +638,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
     if (huart->Instance == DBG_PORT_NAME)
     {
-        // Проверяем, что DMA_TC флаг установлен
-        while (__HAL_UART_GET_FLAG(huart, UART_FLAG_TC) != SET)
-        {
-            // Ожидаем завершения передачи
-        };
-
         uint16_t Size_Data = Size - Start_index;
 
         HAL_UART_RxEventTypeTypeDef rxEventType;
@@ -704,11 +698,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
     if (huart->Instance == USART1)
     {
-        // Проверяем, что DMA_TC флаг установлен
-        while (__HAL_UART_GET_FLAG(huart, UART_FLAG_TC) != SET)
-        {
-            // Ожидаем завершения передачи
-        };
         memcpy(message_rx, UART_rx, Size);
         // Отправляем сообщение в очередь с таймаутом 0
         osStatus status = osMessagePut(rxDataUART1Handle, (uint32_t)Size, 0);

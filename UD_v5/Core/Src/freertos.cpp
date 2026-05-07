@@ -28,6 +28,7 @@
 #include "flash_spi.h"
 #include "LED.h"
 #include "lwip.h"
+#include "lwip/dhcp.h"
 using namespace std;
 #include <string>
 #include <cstring>
@@ -76,6 +77,10 @@ extern led LED_IPadr;
 extern led LED_error;
 extern led LED_OSstart;
 
+// Мьютексы для потокобезопасного доступа к мотору и SPI Flash
+osMutexId motorMutex;
+osMutexId flashMutex;
+
 void actoin_motor_set(cJSON *obj, bool save);
 void actoin_ip(cJSON *obj, bool save);
 void actoin_resp_all_set(void);
@@ -88,8 +93,6 @@ bool DR = false;
 uint32_t steps = 2000;
 //dir dir1 = dir::CW;
 
-extern settings_t settings;
-
 extern flash mem_spi;
 
 //структуры для netcon
@@ -100,7 +103,6 @@ string strIP;
 string in_str;
 
 //переменные для обшей работы
-uint32_t var_sys[100];
 
 extern uint8_t message_rx[message_RX_LENGTH];
 extern uint8_t UART2_rx[UART2_RX_LENGTH];
@@ -159,7 +161,11 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
-	/* add mutexes, ... */
+	osMutexDef(motorMutex);
+	motorMutex = osMutexCreate(osMutex(motorMutex));
+
+	osMutexDef(flashMutex);
+	flashMutex = osMutexCreate(osMutex(flashMutex));
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
@@ -185,7 +191,7 @@ void MX_FREERTOS_Init(void) {
   mainTaskHandle = osThreadCreate(osThread(mainTask), NULL);
 
   /* definition and creation of Motor_pool */
-  osThreadDef(Motor_pool, motor_pool, osPriorityNormal, 0, 256);
+  osThreadDef(Motor_pool, motor_pool, osPriorityAboveNormal, 0, 512);
   Motor_poolHandle = osThreadCreate(osThread(Motor_pool), NULL);
 
   /* definition and creation of ledTask */
@@ -201,7 +207,7 @@ void MX_FREERTOS_Init(void) {
   uart_taskHandle = osThreadCreate(osThread(uart_task), NULL);
 
   /* definition and creation of loggerTask */
-  osThreadDef(loggerTask, LoggerTask, osPriorityNormal, 0, 128);
+  osThreadDef(loggerTask, LoggerTask, osPriorityBelowNormal, 0, 256);
   loggerTaskHandle = osThreadCreate(osThread(loggerTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
@@ -229,8 +235,25 @@ void MainTask(void const * argument)
   STM_LOG("Start %s app. Ver %d", FIRMWARE_NAME, FIRMWARE_VERSION);
 
 	LED_IPadr.setParameters(mode::ON_OFF);
-	while (gnetif.ip_addr.addr == 0) {
-		osDelay(1);
+	{
+		uint32_t dhcpStart = osKernelSysTick();
+		while (gnetif.ip_addr.addr == 0) {
+			if ((osKernelSysTick() - dhcpStart) > 30000U) {
+				// Таймаут DHCP — переходим на статический IP
+				dhcp_stop(&gnetif);
+				ip4_addr_t ip, mask, gw;
+				IP4_ADDR(&ip,   settings.saveIP.ip[0],      settings.saveIP.ip[1],
+				                settings.saveIP.ip[2],      settings.saveIP.ip[3]);
+				IP4_ADDR(&mask, settings.saveIP.mask[0],    settings.saveIP.mask[1],
+				                settings.saveIP.mask[2],    settings.saveIP.mask[3]);
+				IP4_ADDR(&gw,   settings.saveIP.gateway[0], settings.saveIP.gateway[1],
+				                settings.saveIP.gateway[2], settings.saveIP.gateway[3]);
+				netif_set_addr(&gnetif, &ip, &mask, &gw);
+				STM_LOG("DHCP timeout, static IP applied");
+				break;
+			}
+			osDelay(1);
+		}
 	}	//ждем получение адреса
 	LED_IPadr.LEDon();
 	osDelay(1000);
@@ -292,7 +315,13 @@ void MainTask(void const * argument)
 
 								if(!in_str.empty())
 								{
-									string resp = Command_execution(in_str);
+									string resp;
+									if (osMutexWait(motorMutex, 100) == osOK) {
+										resp = Command_execution(in_str);
+										osMutexRelease(motorMutex);
+									} else {
+										resp = "busy";
+									}
 									netconn_write(newconn, resp.c_str(), resp.size(), NETCONN_COPY);
 								}
 
@@ -331,9 +360,10 @@ void motor_pool(void const * argument)
 	for (;;) {
 
 		// проверять концевики. если мотор не стоит и концевик включен то экстренно остановить
-		pMotor->limit_switch_pool();
-        // Обновление глобальной позиции для энкодера
-        //pMotor->updateEncoderGlobalPosition();
+		if (osMutexWait(motorMutex, 5) == osOK) {
+			pMotor->limit_switch_pool();
+			osMutexRelease(motorMutex);
+		}
 		//osDelayUntil(&tickcount, 1); // задача будет вызываься ровно через 1 милисекунду
 		osDelay(1);
 	}
@@ -384,15 +414,13 @@ void CallTask(void const * argument)
 
 	/* Infinite loop */
 	for (;;) {
-		if(pMotor->Calibration_pool())
-		{
-
-            // Сохраняем настройки в память
-            //mem_spi.Write(settings);
-
-            STM_LOG("Calibration completed successfully");
+		if (osMutexWait(motorMutex, 50) == osOK) {
+			bool done = pMotor->Calibration_pool();
+			osMutexRelease(motorMutex);
+			if (done) {
+				STM_LOG("Calibration completed successfully");
+			}
 		}
-		//pMotor->findHome();
 		osDelay(10);
 	}
   /* USER CODE END CallTask */
@@ -441,7 +469,10 @@ void uart_Task(void const * argument)
                             actoin_ip(obj, save_set);
                             break;
                         case 2: // motor settings
-                            actoin_motor_set(obj, save_set);
+                            if (osMutexWait(motorMutex, 100) == osOK) {
+                                actoin_motor_set(obj, save_set);
+                                osMutexRelease(motorMutex);
+                            }
                             break;
                         case 3:
                             actoin_resp_all_set();
@@ -526,8 +557,10 @@ void actoin_motor_set(cJSON *obj, bool save) {
 	cJSON *j_set_cw_ccw = cJSON_GetObjectItemCaseSensitive(obj, "set_cw_ccw");
 	cJSON *j_rotation = cJSON_GetObjectItemCaseSensitive(obj, "rotation");
 	cJSON *j_set_rotation = cJSON_GetObjectItemCaseSensitive(obj,"set_rotation");
-	cJSON *j_disable_on_stop = cJSON_GetObjectItemCaseSensitive(obj, "disable_on_stop");
+	cJSON *j_disable_on_stop = cJSON_GetObjectItemCaseSensitive(obj, "disable_on_stop");  // fallback
+	cJSON *j_disable_mode = cJSON_GetObjectItemCaseSensitive(obj, "disable_mode");
 	cJSON *j_set_disable_on_stop = cJSON_GetObjectItemCaseSensitive(obj, "set_disable_on_stop");
+	cJSON *j_set_disable_mode = cJSON_GetObjectItemCaseSensitive(obj, "set_disable_mode");
 	cJSON *j_en_invert = cJSON_GetObjectItemCaseSensitive(obj, "en_invert");
 	cJSON *j_set_en_invert = cJSON_GetObjectItemCaseSensitive(obj, "set_en_invert");
 
@@ -674,10 +707,14 @@ void actoin_motor_set(cJSON *obj, bool save) {
 		}
 	}
 
-	// Обработка disable_on_stop
-	if ((j_set_disable_on_stop != NULL) && (j_disable_on_stop != NULL) && cJSON_IsNumber(j_disable_on_stop)) {
+	// Обработка disable_mode (новый ключ; fallback: disable_on_stop для совместимости)
+	if ((j_set_disable_mode != NULL) && (j_disable_mode != NULL) && cJSON_IsNumber(j_disable_mode)) {
+		if (cJSON_IsTrue(j_set_disable_mode)) {
+			pMotor->setDisableMode((uint8_t)(j_disable_mode->valueint & 0x03));
+		}
+	} else if ((j_set_disable_on_stop != NULL) && (j_disable_on_stop != NULL) && cJSON_IsNumber(j_disable_on_stop)) {
 		if (cJSON_IsTrue(j_set_disable_on_stop)) {
-			pMotor->setDisableOnStop(j_disable_on_stop->valueint != 0);
+			pMotor->setDisableMode((uint8_t)(j_disable_on_stop->valueint != 0 ? 1 : 0));
 		}
 	}
 
@@ -692,14 +729,13 @@ void actoin_motor_set(cJSON *obj, bool save) {
 
 	// Сохранение настроек при необходимости
 	if (save) {
-
-		if(mem_spi.Write(settings))
-		{
-			STM_LOG("Save motor settings OK");
-		}
-		else
-		{
-			STM_LOG("Save motor settings FAIL");
+		if (osMutexWait(flashMutex, 1000) == osOK) {
+			if(mem_spi.Write(settings)) {
+				STM_LOG("Save motor settings OK");
+			} else {
+				STM_LOG("Save motor settings FAIL");
+			}
+			osMutexRelease(flashMutex);
 		}
 	}
 }
@@ -896,13 +932,13 @@ void actoin_ip(cJSON *obj, bool save) {
 
 		// Сохранение настроек при необходимости
 		if (save) {
-			if(mem_spi.Write(settings))
-			{
-				STM_LOG("Save settings OK");
-			}
-			else
-			{
-				STM_LOG("Save settings FAIL");
+			if (osMutexWait(flashMutex, 1000) == osOK) {
+				if(mem_spi.Write(settings)) {
+					STM_LOG("Save settings OK");
+				} else {
+					STM_LOG("Save settings FAIL");
+				}
+				osMutexRelease(flashMutex);
 			}
 		}
 	}
@@ -973,7 +1009,8 @@ void actoin_resp_all_set() {
 
 	cJSON_AddNumberToObject(j_all_settings_obj, "rotation", pMotor->getMode());
 
-	cJSON_AddNumberToObject(j_all_settings_obj, "disable_on_stop", pMotor->getDisableOnStop() ? 1 : 0);
+	cJSON_AddNumberToObject(j_all_settings_obj, "disable_mode", (int)pMotor->getDisableMode());
+	cJSON_AddNumberToObject(j_all_settings_obj, "disable_on_stop", pMotor->getDisableOnStop() ? 1 : 0);  // для обратной совместимости
 
 	cJSON_AddNumberToObject(j_all_settings_obj, "en_invert", pMotor->getEnInvert() ? 1 : 0);
 

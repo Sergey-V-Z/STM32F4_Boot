@@ -230,7 +230,7 @@ uint8_t FirmwareUpdate_StartBackupUpdate(meta_t *metadata, FWUpdateParams *updat
  * @param crc CRC блока данных
  * @return uint8_t Код ошибки или UPDATE_ERROR_NONE при успехе
  */
-uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t* data, uint32_t size) {
+uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t* data, uint32_t size, uint32_t crc) {
     // Проверяем возможность доступа к контексту
     if (xSemaphoreTake(g_updateContext.mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
         return UPDATE_ERROR_BUSY;
@@ -256,7 +256,6 @@ uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t* dat
         xSemaphoreGive(g_updateContext.mutex);
         return UPDATE_ERROR_INVALID_SIZE;
     }
-/* crc теперь вычисляем в конце и всей прошивки
     // Вычисляем и проверяем CRC блока
     uint32_t calculatedCRC = crc32_calculate(data, size, 0);
     if (calculatedCRC != crc) {
@@ -265,9 +264,9 @@ uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t* dat
         return UPDATE_ERROR_CRC_MISMATCH;
     }
 
-    // Обновляем CRC всей прошивки
+    // Обновляем накопленный CRC всей прошивки
     g_updateContext.firmwareCRC = crc32_calculate(data, size, g_updateContext.firmwareCRC);
-*/
+
     // Рассчитываем адрес в SPI Flash
     //uint32_t flashAddress = SPI_FLASH_MAIN_FW_ADDRESS + g_updateContext.receivedSize;
     uint32_t flashAddress = (g_updateContext.sectorAddress + g_updateContext.receivedSize);
@@ -789,6 +788,10 @@ void FirmwareUpdate_Secondary(DEV_t *dev, uint8_t size_dev) {
             if (secondaryConfig.cells[i].load_permission == 1) { // разрешение на обновление
                 // ищем устройство с таким же именем проекта
                 for (size_t j = 0; j < size_dev; j++) {
+                    // MOSFET_3CH (chanels_pwr) не имеет загрузчика — OTA невозможен
+                    if (dev[j].TypePCB == MOSFET_3CH) {
+                        continue;
+                    }
                     // получаем метаданные вторичной платы
                     meta_t board_meta;
                     GetSecondaryBoardMeta(&dev[j], &board_meta);
@@ -870,33 +873,29 @@ HAL_StatusTypeDef Firmware_Upload_Secondary(DEV_t dev, FirmwareUpdateCellState c
     return HAL_OK;
 }
 
+/* Буфер для чанков вторичной прошивки — в CCMRAM, не занимает основной SRAM.
+ * Функция TransferFirmwareToSecondaryBoard не реентерабельна (вызывается из одной задачи). */
+#define SECONDARY_CHUNK_SIZE  256U
+static uint8_t s_fw_chunk[SECONDARY_CHUNK_SIZE] __attribute__((section(".ccmram"), used));
+
 // эта функция отвечает за передачу прошивки на вторичную плату работает только с загрузчиком
 uint8_t TransferFirmwareToSecondaryBoard(DEV_t *dev, FirmwareUpdateCellState cell)
 {
-    secondary_status_t resp_status;
-    uint16_t resp_size = sizeof(resp_status);
-    HAL_StatusTypeDef resp = HAL_OK;
-
-    // контекст записи
-    const uint32_t chunkSize = 256; // Размер одного блока данных для передачи
-    uint32_t bytesSent = 0, bytesToRead = chunkSize;
-    uint8_t *chunk = (uint8_t *)malloc(chunkSize);
-    if (chunk == nullptr)
-    {
-        STM_LOG(LOG_ERR "Failed to allocate memory for firmware chunk");
-        return 1;
-    }
-
-    // проверить что плата в режиме загрузчика
     if (dev == nullptr)
     {
         STM_LOG(LOG_ERR "DEV_t pointer is null");
         return 1;
     }
 
-    secondary_status_t status;
+    secondary_status_t resp_status;
+    uint16_t resp_size = sizeof(resp_status);
+    HAL_StatusTypeDef resp = HAL_OK;
+
+    uint32_t bytesSent = 0;
+    uint32_t bytesToRead = SECONDARY_CHUNK_SIZE;
 
     // Получаем текущий статус
+    secondary_status_t status;
     if (GetSecondaryBoardStatus(dev, &status, 1000) != HAL_OK)
     {
         STM_LOG(LOG_WARN "Failed to get initial status");
@@ -916,14 +915,16 @@ uint8_t TransferFirmwareToSecondaryBoard(DEV_t *dev, FirmwareUpdateCellState cel
     firmware_data.firmwareVersion = cell.metadata.version;
     firmware_data.type_pcb = dev->TypePCB;
     memset(firmware_data.name_proj, 0, sizeof(firmware_data.name_proj));
-    strncpy((char *)firmware_data.name_proj, cell.metadata.name_proj, strlen(cell.metadata.name_proj));
+    strncpy((char *)firmware_data.name_proj, cell.metadata.name_proj,
+            sizeof(firmware_data.name_proj) - 1U);
 
     // Отправляем команду на вторичную плату для подготовки к записи прошивки
-    resp = send_cmd_data_with_response(dev, cmd_t::prepare_write, (uint8_t *)&firmware_data, sizeof(firmware_data), (uint8_t *)&resp_status, &resp_size, 10000);
-    if (resp_size != sizeof(resp_status))
+    resp = send_cmd_data_with_response(dev, cmd_t::prepare_write,
+                                       (uint8_t *)&firmware_data, sizeof(firmware_data),
+                                       (uint8_t *)&resp_status, &resp_size, 10000);
+    if (resp != HAL_OK || resp_size != sizeof(resp_status))
     {
         STM_LOG(LOG_ERR "Failed to send prepare write command to secondary board");
-        free(chunk);
         return 1;
     }
 
@@ -931,61 +932,62 @@ uint8_t TransferFirmwareToSecondaryBoard(DEV_t *dev, FirmwareUpdateCellState cel
     if (resp_status.status != s_status_flash_t::FIRMWARE_STATUS_ERASED)
     {
         STM_LOG(LOG_ERR "Secondary board is not ready for firmware write");
-        free(chunk);
         return 1;
     }
-    
-    // прочитать кусок из флешки
+
+    // передача прошивки чанками из SPI Flash
     while (bytesSent < firmware_data.firmwareSize)
     {
-        // сколько байт осталось прочитать
-        if (firmware_data.firmwareSize - bytesSent < chunkSize)
+        bytesToRead = firmware_data.firmwareSize - bytesSent;
+        if (bytesToRead > SECONDARY_CHUNK_SIZE)
         {
-            bytesToRead = firmware_data.firmwareSize - bytesSent;
+            bytesToRead = SECONDARY_CHUNK_SIZE;
         }
-        g_spiFlash->W25qxx_ReadBytes(cell.cell_address + bytesSent, chunk, bytesToRead);
-        // отправить на плату 
-        resp = send_cmd_data_with_response(dev, cmd_t::firmware_data, chunk, bytesToRead, (uint8_t *)&resp_status, &resp_size, 10000); 
+
+        g_spiFlash->W25qxx_ReadBytes(cell.cell_address + bytesSent, s_fw_chunk, bytesToRead);
+
+        resp_size = sizeof(resp_status);
+        resp = send_cmd_data_with_response(dev, cmd_t::firmware_data,
+                                           s_fw_chunk, bytesToRead,
+                                           (uint8_t *)&resp_status, &resp_size, 10000);
         if (resp != HAL_OK)
         {
             STM_LOG(LOG_ERR "Failed to send firmware data to secondary board");
-            free(chunk);
             return 1;
         }
-        
+
         bytesSent += bytesToRead;
     }
 
-    // завершение прошивки все данные уже переданны команда завершения fin_write
-    resp = send_cmd_data_with_response(dev, cmd_t::fin_write, nullptr, 0, (uint8_t *)&resp_status, &resp_size, 10000);
+    // завершение прошивки — команда fin_write
+    resp_size = sizeof(resp_status);
+    resp = send_cmd_data_with_response(dev, cmd_t::fin_write, nullptr, 0,
+                                       (uint8_t *)&resp_status, &resp_size, 10000);
     if (resp != HAL_OK)
     {
         STM_LOG(LOG_ERR "Failed to send firmware finalization command to secondary board");
-        free(chunk);
         return 1;
     }
-    // проверить ответ
+
     if (resp_status.status != s_status_flash_t::FIRMWARE_STATUS_VERIFIED)
     {
-        STM_LOG(LOG_ERR "Secondary board is not ready for firmware write");
-        free(chunk);
+        STM_LOG(LOG_ERR "Secondary board firmware verification failed");
         return 1;
     }
 
-    // ждем перезагрузку
+    // ждем перезагрузку платы
     HAL_Delay(100);
 
-    // проверяем статус и режим мы должны быть в режиме app
-    send_cmd_data_with_response(dev, cmd_t::status, nullptr, 0, (uint8_t *)&resp_status, &resp_size, 10000);
+    // проверяем что плата вернулась в режим app
+    resp_size = sizeof(resp_status);
+    send_cmd_data_with_response(dev, cmd_t::status, nullptr, 0,
+                                (uint8_t *)&resp_status, &resp_size, 10000);
 
     if (resp_status.mode != MODE_APP)
     {
-        STM_LOG(LOG_WARN "Secondary board is not in app mode");
-        free(chunk);
+        STM_LOG(LOG_WARN "Secondary board is not in app mode after update");
         return 1;
     }
-
-    free(chunk);
 
     return 0;
 }

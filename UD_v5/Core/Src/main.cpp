@@ -271,7 +271,23 @@ int main(void)
 		settings.res1 = FLAG_DISABLE_ON_STOP; // старое поведение: всегда отключать EN при стопе
 		settings.version = 48;
 		mem_spi.W25qxx_EraseSector(0);
-		mem_spi.Write(settings);
+		if (!mem_spi.Write(settings)) {
+			settings.version = 47; // откат версии при неудаче записи
+		}
+		mem_spi.Read(&settings);
+	}
+
+	// Миграция v48 → v49: перенос FLAG_DISABLE_ON_STOP (бит 0) → DISABLE_MODE (биты 3:2)
+	// Старое значение 1 = "отключать всегда" → новый режим 1
+	if (settings.version == 48) {
+		uint8_t old_val = (settings.res1 & FLAG_DISABLE_ON_STOP) ? 1U : 0U;
+		settings.res1 &= ~(FLAG_DISABLE_ON_STOP | DISABLE_MODE_MASK);
+		settings.res1 |= ((uint32_t)old_val << DISABLE_MODE_SHIFT);
+		settings.version = 49;
+		mem_spi.W25qxx_EraseSector(0);
+		if (!mem_spi.Write(settings)) {
+			settings.version = 48; // откат версии при неудаче записи
+		}
 		mem_spi.Read(&settings);
 	}
 
@@ -401,7 +417,7 @@ PUTCHAR_PROTOTYPE
 }
 
 uint8_t ReadStraps(){
-	uint8_t tempStraps;
+	uint8_t tempStraps = 0;
 
 	//Bit0
 	if (HAL_GPIO_ReadPin(MAC_b0_GPIO_Port, MAC_b0_Pin)) SET_BIT(tempStraps,1<<0);
@@ -515,11 +531,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
     if (huart->Instance == USART2) {
-        // Проверяем, что DMA_TC флаг установлен
-        while (__HAL_UART_GET_FLAG(huart, UART_FLAG_TC) != SET) {
-            // Ожидаем завершения передачи
-        };
-
         uint16_t Size_Data = Size - Start_index;
 
         HAL_UART_RxEventTypeTypeDef rxEventType;

@@ -266,7 +266,7 @@ uint32_t FirmwareUpdate_GetStatus(uint32_t *error);
 
 // Функции обработки команд протокола
 uint8_t FirmwareUpdate_StartUpdate(meta_t *metadata, FWUpdateParams *update_params);
-uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t *data, uint32_t size);
+uint8_t FirmwareUpdate_ProcessDataBlock(uint32_t blockNumber, const uint8_t *data, uint32_t size, uint32_t crc);
 uint32_t FirmwareUpdate_EndUpdate(void);
 uint8_t FirmwareUpdate_AbortUpdate(void);
 uint32_t CalculateFirmwareCRC(flash* spiFlash, uint32_t startAddress, uint32_t length);

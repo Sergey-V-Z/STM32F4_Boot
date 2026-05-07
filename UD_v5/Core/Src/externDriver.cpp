@@ -398,9 +398,18 @@ void extern_driver::stop(statusTarget_t status, bool force_disable) {
     ignore_D1 = false;
 
     HAL_TIM_OC_Stop_IT(TimFrequencies, ChannelClock);
-    // Отключаем EN если: бит disable_on_stop установлен или force_disable=true (передано из TCP/UART команды)
-    if ((settings->res1 & FLAG_DISABLE_ON_STOP) || force_disable) {
-        disableDriver();
+    // Отключаем EN согласно режиму disable_mode (биты 3:2 поля res1)
+    // или принудительно при force_disable=true (TCP/UART команда C1D0)
+    {
+        const bool is_limit = (status == statusTarget_t::errLimitSwitch ||
+                               status == statusTarget_t::finishedByLimitSwitch);
+        const uint8_t dis_mode = getDisableMode();
+        if (force_disable ||
+            (dis_mode == 1) ||
+            (dis_mode == 2 && !is_limit) ||
+            (dis_mode == 3 &&  is_limit)) {
+            disableDriver();
+        }
     }
     //permission_calibrate = false;
     //permission_findHome = false;
@@ -511,7 +520,7 @@ void extern_driver::SensHandler(uint16_t GPIO_Pin) {
 	if (GPIO_Pin == D0_Pin && ignore_D0) return;
 	if (GPIO_Pin == D1_Pin && ignore_D1) return;
 
-    stop(statusTarget_t::finished);
+    stop(statusTarget_t::finishedByLimitSwitch);
 
 	if (GPIO_Pin == D0_Pin) {
 		position = pos_t::D0;

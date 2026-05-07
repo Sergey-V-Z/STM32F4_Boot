@@ -29,8 +29,9 @@ typedef enum {
     finished,
     errMotion,
     errDirection,
-    errDriver,  // Добавляем новое состояние ошибки для драйвера
-	errLimitSwitch
+    errDriver,              // ошибка драйвера
+    errLimitSwitch,         // аварийный стоп по концевику (limit_switch_pool)
+    finishedByLimitSwitch   // нормальная остановка на концевике (SensHandler)
 } statusTarget_t;
 
 typedef enum {
@@ -122,12 +123,14 @@ public:
     uint32_t getMinPosition() const;
     bool isCalibrated();
 
-    // Управление флагами EN
-    bool getDisableOnStop() const  { return (settings->res1 & FLAG_DISABLE_ON_STOP) != 0; }
-    void setDisableOnStop(bool val) {
-        if (val) settings->res1 |=  FLAG_DISABLE_ON_STOP;
-        else     settings->res1 &= ~FLAG_DISABLE_ON_STOP;
+    // Управление режимом отключения EN (0=выкл, 1=любой стоп, 2=только по шагам, 3=только концевик)
+    uint8_t getDisableMode() const  { return (uint8_t)((settings->res1 & DISABLE_MODE_MASK) >> DISABLE_MODE_SHIFT); }
+    void setDisableMode(uint8_t mode) {
+        settings->res1 = (settings->res1 & ~DISABLE_MODE_MASK) | (((uint32_t)(mode & 0x03U)) << DISABLE_MODE_SHIFT);
     }
+    // Для обратной совместимости (устарели)
+    bool getDisableOnStop() const  { return getDisableMode() != 0; }
+    void setDisableOnStop(bool val) { setDisableMode(val ? 1U : 0U); }
     bool getEnInvert() const { return (settings->res1 & FLAG_EN_INVERT) != 0; }
     void setEnInvert(bool val) {
         if (val) settings->res1 |=  FLAG_EN_INVERT;
@@ -144,11 +147,11 @@ public:
 
 private:
     // ---- Feedback: единая позиция для энкодера и таймера счётчика ----
-    int32_t feedbackPosition = 0;   // заменяет globalPosition и globalPositionTimer
+    volatile int32_t feedbackPosition = 0;   // заменяет globalPosition и globalPositionTimer
     uint32_t targetAbsolutePosition = 0;          // Целевая позиция для коррекции
     static const uint16_t FEEDBACK_MID_VALUE = 0x7FFF; // Середина 16-битного диапазона
     static const uint16_t FEEDBACK_MAX_PART  = 0x6000; // Максимальный шаг одного сегмента
-    bool isLastSegment = false;                // Флаг последнего сегмента движения
+    volatile bool isLastSegment = false;                // Флаг последнего сегмента движения
     uint32_t totalRemainingSteps = 0;          // Оставшиеся шаги
 
     bool validatePointNumber(uint32_t point_number);
@@ -229,8 +232,8 @@ private:
     uint32_t Speed_temp = 0;
 
     // ---- Состояния ----
-    statusMotor Status = statusMotor::STOPPED;
-    statusTarget_t StatusTarget = statusTarget_t::finished;
+    volatile statusMotor Status = statusMotor::STOPPED;
+    volatile statusTarget_t StatusTarget = statusTarget_t::finished;
     fb FeedbackType = fb::NON;
 
     // ---- Позиционирование ----
