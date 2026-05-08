@@ -290,14 +290,18 @@ void devices_auto_discover_and_init() {
     
     // Создаем привязку каналов (NameCH[])
     osMutexWait(varMutexDevicesHandle, osWaitForever);
-    
+
+    int ch_counter = 0;
     for (uint32_t var = 0; var < found_count; ++var) {
-        if ((devices[var].Addr >= START_ADR_DEV) && 
+        if ((devices[var].Addr >= START_ADR_DEV) &&
             (devices[var].Addr <= (START_ADR_DEV + MAX_ADR_DEV))) {
-            
-            for (int i = 0; i < 3; ++i) {
-                NameCH[devices[var].ch[i].Name_ch].dev = &devices[var];
-                NameCH[devices[var].ch[i].Name_ch].Channel_number = i;
+
+            int num_ch = (devices[var].TypePCB == MOSFET_6CH) ? 6 : 3;
+            for (int i = 0; i < num_ch && ch_counter < MAX_CH_NAME; ++i) {
+                devices[var].ch[i].Name_ch = (uint8_t)ch_counter;
+                NameCH[ch_counter].dev = &devices[var];
+                NameCH[ch_counter].Channel_number = i;
+                ch_counter++;
             }
         }
     }

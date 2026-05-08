@@ -522,6 +522,15 @@ uint32_t auto_search_dev(DEV_t *dev, uint8_t size_dev)
     dev[found_count].Addr = addr;
     dev[found_count].AddrFromDev = header.address;
     dev[found_count].TypePCB = (PCBType)sec_status.type_pcb;
+    dev[found_count].ERR_counter = 0;
+    dev[found_count].last_ERR = 0;
+    for (int ci = 0; ci < 6; ci++) {
+        dev[found_count].ch[ci].PWM_out = 0;
+        dev[found_count].ch[ci].PWM     = 0;
+        dev[found_count].ch[ci].On_off  = 0;
+        dev[found_count].ch[ci].IsOn    = 0;
+        dev[found_count].ch[ci].Current = 0;
+    }
 
     if (sec_status.count_ch == 6) {
       dev[found_count].ch[0].used = true;

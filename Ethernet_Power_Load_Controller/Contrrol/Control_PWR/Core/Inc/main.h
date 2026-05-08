@@ -42,7 +42,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000008 // Версия
+#define FIRMWARE_VERSION    0x00000010 // Версия
 #define FIRMWARE_NAME       "Control PWR"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
 
