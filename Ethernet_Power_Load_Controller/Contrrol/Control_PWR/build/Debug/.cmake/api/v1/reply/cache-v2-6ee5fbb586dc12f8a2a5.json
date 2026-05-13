@@ -1195,10 +1195,10 @@
 			[
 				{
 					"name" : "HELPSTRING",
-					"value" : "The CMake toolchain file"
+					"value" : "No help, variable specified on the command line."
 				}
 			],
-			"type" : "FILEPATH",
+			"type" : "UNINITIALIZED",
 			"value" : "D:/Radio/Jobe/STM32F4_Boot/Ethernet_Power_Load_Controller/Contrrol/Control_PWR/cmake/gcc-arm-none-eabi.cmake"
 		},
 		{

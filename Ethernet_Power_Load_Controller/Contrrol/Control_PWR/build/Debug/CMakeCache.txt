@@ -220,8 +220,8 @@ CMAKE_STRIP:FILEPATH=C:/ST/STM32CubeCLT_1.17.0/GNU-tools-for-STM32/bin/arm-none-
 //Path to a program.
 CMAKE_TAPI:FILEPATH=CMAKE_TAPI-NOTFOUND
 
-//The CMake toolchain file
-CMAKE_TOOLCHAIN_FILE:FILEPATH=D:/Radio/Jobe/STM32F4_Boot/Ethernet_Power_Load_Controller/Contrrol/Control_PWR/cmake/gcc-arm-none-eabi.cmake
+//No help, variable specified on the command line.
+CMAKE_TOOLCHAIN_FILE:UNINITIALIZED=D:/Radio/Jobe/STM32F4_Boot/Ethernet_Power_Load_Controller/Contrrol/Control_PWR/cmake/gcc-arm-none-eabi.cmake
 
 //If this value is on, makefiles will be generated without the
 // .SILENT directive, and all commands will be echoed to the console

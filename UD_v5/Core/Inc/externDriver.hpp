@@ -145,6 +145,9 @@ public:
     // Единый обработчик feedback-таймера (заменяет handleEncoderCompare + handleTimerCompare)
     void handleFeedbackCompare(TIM_HandleTypeDef *htim, uint32_t channel);
 
+    // Управление EN с учётом инверсии
+    void enableDriver();
+    void disableDriver();
 private:
     // ---- Feedback: единая позиция для энкодера и таймера счётчика ----
     volatile int32_t feedbackPosition = 0;   // заменяет globalPosition и globalPositionTimer
@@ -169,9 +172,6 @@ private:
     double map(double x, double in_min, double in_max, double out_min, double out_max);
     void ChangeTimerMode(TIM_HandleTypeDef *htim, uint32_t Mode);
 
-    // Управление EN с учётом инверсии
-    void enableDriver();
-    void disableDriver();
 
     void calculateTimerFrequency();
     uint16_t map_PercentFromARR(uint16_t arr_value);

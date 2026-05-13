@@ -556,6 +556,13 @@ string Command_execution(string in_str){
 					arr_cmd[i].err = " OK ";
 				}
 				break;
+			case 33: // принудительно отключение драйвера мотора (EN)
+				if(arr_cmd[i].addres_var >= 1){
+					// Включить драйвер
+					pMotor->disableDriver();
+					arr_cmd[i].err = " OK ";
+				}
+			    break;
 			default:
 				arr_cmd[i].err = "Command does not exist";
 				arr_cmd[i].f_bool = true;
