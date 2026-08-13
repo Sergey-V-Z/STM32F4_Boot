@@ -94,8 +94,8 @@ typedef struct {
 // Формат заголовка пакета (упрощенный)
 typedef struct {
 	uint32_t command;       // Команда
-	uint32_t size;         // Размер данных
-	uint32_t block_number; // Номер блока или доп. параметр
+	uint32_t variable;      // Номер блока или доп. параметр
+	uint32_t size;          // Размер данных после заголовка
 } PacketHeader;
 
 // Формат ответного пакета

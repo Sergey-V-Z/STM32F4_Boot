@@ -328,7 +328,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
             }
 
             // Проверяем, что размер прошивки не превышает максимально допустимый
-            if (update_params->fw_size > SPI_FLASH_BACKUP_FW_SIZE) {
+            if (update_params->fw_size == 0 || update_params->fw_size > SPI_FLASH_BACKUP_FW_SIZE) {
                 STM_LOG("Backup firmware size exceeds maximum allowed: %lu bytes", update_params->fw_size);
                 SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
                 return 6;
@@ -472,6 +472,12 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
 
         case CMD_START_SECONDARY_UPDATE:
         {
+            if (data_len < PACKET_HEADER_SIZE + sizeof(meta_t) + sizeof(FWUpdateParams)) {
+                STM_LOG("CMD_START_SECONDARY_UPDATE: packet too small: %u bytes", data_len);
+                SendResponse(client, UPDATE_STATUS_ERROR, UPDATE_ERROR_INVALID_SIZE);
+                return 5;
+            }
+
             // Получаем метаданные из g_rxBuffer
             meta_t *metadata = (meta_t *)(g_rxBuffer + PACKET_HEADER_SIZE);
 

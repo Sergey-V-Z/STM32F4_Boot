@@ -149,7 +149,7 @@ extern float g_current_amperes;  // Объявление extern
 // Использование
 if (g_current_amperes > 15.0f) {
     // Защита от перегрузки по току
-    PWM_DisableAll();
+    DAC_DisableAll();
 }
 ```
 

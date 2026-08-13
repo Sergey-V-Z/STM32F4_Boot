@@ -18,6 +18,9 @@ using namespace std;
 #include "protocol.h"
 #include "firmware_update.h"
 #include "pwm_controller.h"
+#include "tca9548a.h"
+#include "dac_settings.h"
+#include "log_buffer.h"
 
 /*variables ---------------------------------------------------------*/
 extern settings_t settings;
@@ -42,6 +45,8 @@ struct mesage_t
 	bool use_signed = false;  // Флаг использования знакового значения
 	string err;			 // сообщение клиенту об ошибке в сообщении
 	bool f_bool = false; // наличие ошибки в сообшении
+	bool has_raw_payload = false; // true только для cmd 28 (дамп лог-буфера)
+	string raw_payload;           // сырые байты дампа для has_raw_payload
 };
 
 // Флаги для разбора сообщения
@@ -293,20 +298,23 @@ string Сommand_execution(string in_str)
 				// mode set all channels (addres_var >= 1)
 				if (arr_cmd[i].addres_var >= 1)
 				{
+					HAL_StatusTypeDef st;
 					if (mode == 1) {
-						PWM_EnableAll();
+						st = DAC_ChannelOnAll();
 					} else if (mode == 0) {
-						PWM_DisableAll();
+						st = DAC_ChannelOffAll();
 					} else if (mode == 3) {
-						PWM_EnableFadeAll();
+						st = DAC_ChannelFadeOnAll();
 					} else if (mode == 4) {
-						PWM_DisableFadeAll();
+						st = DAC_ChannelFadeOffAll();
 					} else {
 						arr_cmd[i].err = "Invalid mode";
 						arr_cmd[i].f_bool = true;
 						break;
 					}
-					arr_cmd[i].err = "OK";
+					// Мгновенно (mode 0/1) статус подтверждён обратным чтением ЦАП;
+					// для fade (mode 3/4) — только то, что переход успешно запущен.
+					arr_cmd[i].err = (st == HAL_OK) ? "OK" : "FAIL";
 				}
 				else
 				{
@@ -314,20 +322,21 @@ string Сommand_execution(string in_str)
 					uint32_t ch = arr_cmd[i].data_in1;
 					if (ch < PWM_CH_COUNT)
 					{
+						HAL_StatusTypeDef st;
 						if (mode == 1) {
-							PWM_Enable((PWM_Channel_t)ch);
+							st = DAC_ChannelOn((uint8_t)ch);
 						} else if (mode == 0) {
-							PWM_Disable((PWM_Channel_t)ch);
+							st = DAC_ChannelOff((uint8_t)ch);
 						} else if (mode == 3) {
-							PWM_EnableFade((PWM_Channel_t)ch);
+							st = DAC_ChannelFadeOn((uint8_t)ch);
 						} else if (mode == 4) {
-							PWM_DisableFade((PWM_Channel_t)ch);
+							st = DAC_ChannelFadeOff((uint8_t)ch);
 						} else {
 							arr_cmd[i].err = "Invalid mode";
 							arr_cmd[i].f_bool = true;
 							break;
 						}
-						arr_cmd[i].err = "OK";
+						arr_cmd[i].err = (st == HAL_OK) ? "OK" : "FAIL";
 					}
 					else
 					{
@@ -384,7 +393,7 @@ string Сommand_execution(string in_str)
 			{
 				if (arr_cmd[i].data_in1 == 1)
 				{
-					arr_cmd[i].data_out = PWM_GetFadeDuration();
+					arr_cmd[i].data_out = DAC_GetFadeDuration();
 					arr_cmd[i].need_resp = true;
 					arr_cmd[i].err = "OK";
 				}
@@ -393,7 +402,7 @@ string Сommand_execution(string in_str)
 					uint32_t ms = arr_cmd[i].data_in;
 					if (ms >= 50 && ms <= 10000)
 					{
-						PWM_SetFadeDuration((uint16_t)ms);
+						DAC_SetFadeDuration((uint16_t)ms);
 						arr_cmd[i].err = "OK";
 					}
 					else
@@ -409,7 +418,7 @@ string Сommand_execution(string in_str)
 				uint32_t ch = arr_cmd[i].data_in1;
 				if (ch < PWM_CH_COUNT)
 				{
-					arr_cmd[i].data_out = PWM_IsEnabled((PWM_Channel_t)ch) ? 1 : 0;
+					arr_cmd[i].data_out = DAC_ChannelIsOn((uint8_t)ch) ? 1 : 0;
 					arr_cmd[i].need_resp = true;
 					arr_cmd[i].err = "OK";
 				}
@@ -543,6 +552,141 @@ string Сommand_execution(string in_str)
 				}
 				break;
 			}
+			// Set percent (0-1000) for channel
+			// C21A<ch>D<pct>N0x  — one channel; A>=6: all channels
+			case 21:
+			{
+				uint32_t pct = arr_cmd[i].data_in;
+				if (pct > DAC_PERCENT_MAX) pct = DAC_PERCENT_MAX;
+				if (arr_cmd[i].addres_var >= DAC_CH_COUNT)
+				{
+					HAL_StatusTypeDef st = HAL_OK;
+					for (uint8_t c = 0; c < DAC_CH_COUNT; c++)
+						if (DAC_SetPercent(c, (uint16_t)pct) != HAL_OK) st = HAL_ERROR;
+					arr_cmd[i].err = (st == HAL_OK) ? "OK" : "FAIL";
+				}
+				else
+				{
+					uint8_t ch = (uint8_t)arr_cmd[i].addres_var;
+					DAC_SetPercent(ch, (uint16_t)pct);
+					arr_cmd[i].data_out = g_dac_setpoints[ch];
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				break;
+			}
+			// Read percent setpoint for channel
+			// C22A<ch>D0N0x  → D<percent 0-1000>
+			case 22:
+			{
+				uint8_t ch = (uint8_t)arr_cmd[i].addres_var;
+				if (ch < DAC_CH_COUNT)
+				{
+					arr_cmd[i].data_out = g_percent_setpoints[ch];
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				else
+				{
+					arr_cmd[i].err = "Invalid channel";
+					arr_cmd[i].f_bool = true;
+				}
+				break;
+			}
+			// Set raw DAC count (0-4095) — debug
+			// C23A<ch>D<dac>N0x  → D<dac>
+			case 23:
+			{
+				uint8_t ch = (uint8_t)arr_cmd[i].addres_var;
+				uint32_t val = arr_cmd[i].data_in;
+				if (ch < DAC_CH_COUNT)
+				{
+					if (val > MCP4725_DAC_MAX) val = MCP4725_DAC_MAX;
+					PWM_SetValue((PWM_Channel_t)ch, PWM_MAX_VALUE);
+					DAC_SetRaw(ch, (uint16_t)val);
+					arr_cmd[i].data_out = val;
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				else
+				{
+					arr_cmd[i].err = "Invalid channel";
+					arr_cmd[i].f_bool = true;
+				}
+				break;
+			}
+			// Read raw DAC count for channel
+			// C24A<ch>D0N0x  → D<dac>
+			case 24:
+			{
+				uint8_t ch = (uint8_t)arr_cmd[i].addres_var;
+				if (ch < DAC_CH_COUNT)
+				{
+					arr_cmd[i].data_out = g_dac_setpoints[ch];
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				else
+				{
+					arr_cmd[i].err = "Invalid channel";
+					arr_cmd[i].f_bool = true;
+				}
+				break;
+			}
+			// Disable channel(s): DAC=0, PWM=0
+			// C25A<ch>D0N0x  — one channel; A>=6: all channels
+			case 25:
+			{
+				HAL_StatusTypeDef st;
+				if (arr_cmd[i].addres_var >= DAC_CH_COUNT)
+				{
+					st = DAC_DisableAll();
+				}
+				else
+				{
+					st = DAC_DisableChannel((uint8_t)arr_cmd[i].addres_var);
+				}
+				arr_cmd[i].err = (st == HAL_OK) ? "OK" : "FAIL";
+				break;
+			}
+			// Read MCP4725 scan result for channel: D = (found<<8 | addr)
+			// C26A<ch>D0N0x  → D<found_addr>
+			case 26:
+			{
+				uint8_t ch = (uint8_t)arr_cmd[i].addres_var;
+				if (ch < DAC_CH_COUNT)
+				{
+					arr_cmd[i].data_out = ((uint32_t)g_mcp4725_found[ch] << 8) | g_mcp4725_addr[ch];
+					arr_cmd[i].need_resp = true;
+					arr_cmd[i].err = "OK";
+				}
+				else
+				{
+					arr_cmd[i].err = "Invalid channel";
+					arr_cmd[i].f_bool = true;
+				}
+				break;
+			}
+			// Сохранить уставки тока (percent) всех каналов во flash.
+			// Бит включения/выключения (cmd 4) не сохраняется — см. dac_settings.h
+			// C27A0D0N0x
+			case 27:
+			{
+				DAC_Settings_Save();
+				arr_cmd[i].err = "OK";
+				break;
+			}
+			// Дамп RAM-буфера логов (дублирует debug UART, см. log_buffer.h).
+			// Неразрушающее чтение — буфер продолжает накапливаться/перезаписываться.
+			// A/D/N игнорируются (зарезервированы). C28A0D0N0x -> C28D<N>:<N raw bytes>x
+			case 28:
+			{
+				static char snapBuf[LOG_BUFFER_SIZE]; // не на стеке — стек eth_Task всего 3072 байта
+				uint32_t n = LogBuffer_Snapshot(snapBuf, sizeof(snapBuf));
+				arr_cmd[i].raw_payload.assign(snapBuf, n);
+				arr_cmd[i].has_raw_payload = true;
+				break;
+			}
 			default:
 			{
 				arr_cmd[i].err = "Command does not exist";
@@ -560,7 +704,17 @@ string Сommand_execution(string in_str)
 		for (int i = 0; i < count_cmd; ++i)
 		{
 
-			if (arr_cmd[i].f_bool == false)
+			if (arr_cmd[i].has_raw_payload)
+			{
+				// Нестандартный, длина-префиксный формат ответа: сырые байты
+				// дампа лога могут содержать что угодно (включая 'x','C','D'),
+				// поэтому длина указывается явно перед ':' — см. cmd 28.
+				resp.append(f_cmd + to_string(arr_cmd[i].cmd));
+				resp.append(f_datd + to_string(arr_cmd[i].raw_payload.size()) + ":");
+				resp.append(arr_cmd[i].raw_payload);
+				resp.append(delim);
+			}
+			else if (arr_cmd[i].f_bool == false)
 			{
 				resp.append(f_cmd + to_string(arr_cmd[i].cmd));
 				if (arr_cmd[i].need_resp)

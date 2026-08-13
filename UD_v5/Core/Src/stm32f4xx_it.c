@@ -269,10 +269,14 @@ void TIM4_IRQHandler(void)
 /**
   * @brief This function handles USART2 global interrupt.
   */
+volatile uint32_t dbg_uart2_irq_count = 0;
+volatile uint32_t dbg_uart2_sr = 0;
+
 void USART2_IRQHandler(void)
 {
   /* USER CODE BEGIN USART2_IRQn 0 */
-
+  dbg_uart2_irq_count++;
+  dbg_uart2_sr = USART2->SR;
   /* USER CODE END USART2_IRQn 0 */
   HAL_UART_IRQHandler(&huart2);
   /* USER CODE BEGIN USART2_IRQn 1 */

@@ -5,7 +5,7 @@ extern uint8_t message_rx[message_RX_LENGTH];
 
 // приватные функции
 void serialize_dev_to_buff(uint8_t *buff, uint16_t *size, const DEV_t *dev);
-void deserialize_buff_to_dev(uint8_t *buff, DEV_t *dev);
+void deserialize_buff_to_dev(uint8_t *buff, uint16_t size, DEV_t *dev);
 HAL_StatusTypeDef send_pwm_ch_to_dev(const DEV_t *dev);
 
 // Быстрая с таблицей
@@ -207,10 +207,10 @@ void serialize_ret_pwm_data(uint8_t *buff, uint16_t *size, ret_pwm_ch_t *data)
 }
 
 // Функция десериализации
-void deserialize_ret_pwm_data(uint8_t *buff, ret_pwm_ch_t *data)
+void deserialize_ret_pwm_data(uint8_t *buff, uint16_t size, ret_pwm_ch_t *data)
 {
   // Проверка на корректность входных параметров
-  if (buff == NULL || data == NULL)
+  if (buff == NULL || data == NULL || size < 44)
   {
     return; // Минимальный размер: 6 + 14 + 24 = 44 байта
   }
@@ -587,7 +587,7 @@ void serialize_dev_to_buff(uint8_t *buff, uint16_t *size, const DEV_t *dev) {
 }
 
 // функция десериализации данных из буфера в структуру DEV_t
-void deserialize_buff_to_dev(uint8_t *buff, DEV_t *dev) {
+void deserialize_buff_to_dev(uint8_t *buff, uint16_t size, DEV_t *dev) {
     if (buff == nullptr || dev == nullptr) {
         return; // Минимальный размер: 6 байт (en1-en6) + 24 байта (PWM1-PWM6)
     }
@@ -595,7 +595,7 @@ void deserialize_buff_to_dev(uint8_t *buff, DEV_t *dev) {
     ret_pwm_ch_t pwm_data;
     clear_ret_pwm_data(&pwm_data);
     // Десериализуем данные из буфера
-    deserialize_ret_pwm_data((uint8_t*)buff, &pwm_data);
+    deserialize_ret_pwm_data((uint8_t*)buff, size, &pwm_data);
 
     // Заполняем только те поля, которые есть в DEV_t
     dev->ch[0].On_off = pwm_data.en1;
@@ -711,7 +711,7 @@ uint8_t exchange_channel_data_with_device(DEV_t *dev)
 
     if(rx_data != nullptr){
       // разборка данных
-      deserialize_buff_to_dev(rx_data, dev);
+      deserialize_buff_to_dev(rx_data, rx_data_size, dev);
     }else{
       osMutexRelease(deviceMutexHandle);
       return 0;

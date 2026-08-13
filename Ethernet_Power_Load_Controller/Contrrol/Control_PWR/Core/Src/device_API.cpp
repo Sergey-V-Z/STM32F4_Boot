@@ -151,29 +151,6 @@ void Command_execution(const char *in_str, char *out_buf, size_t out_size)
     if (!errMSG) {
         for (uint32_t i = 0; i < cmd_count; i++) {
             switch (arr_cmd[i].cmd) {
-            /* Delet dev */
-            case 1: {
-                if (arr_cmd[i].data_in1 == 0) {
-                    strncpy(arr_cmd[i].err, "OK", ERR_BUF_SIZE-1U);
-                } else if (arr_cmd[i].data_in1 == 1) {
-                    strncpy(arr_cmd[i].err, "not available", ERR_BUF_SIZE-1U);
-                } else if (arr_cmd[i].data_in1 == 2) {
-                    strncpy(arr_cmd[i].err, "OK", ERR_BUF_SIZE-1U);
-                } else {
-                    strncpy(arr_cmd[i].err, "bad param", ERR_BUF_SIZE-1U);
-                }
-                break;
-            }
-            /* Add dev in cell */
-            case 2: {
-                strncpy(arr_cmd[i].err, "OK", ERR_BUF_SIZE-1U);
-                break;
-            }
-            /* Delete dev */
-            case 3: {
-                strncpy(arr_cmd[i].err, "OK", ERR_BUF_SIZE-1U);
-                break;
-            }
             /* Channel on/off */
             case 4: {
                 osMutexWait(varMutexDevicesHandle, osWaitForever);

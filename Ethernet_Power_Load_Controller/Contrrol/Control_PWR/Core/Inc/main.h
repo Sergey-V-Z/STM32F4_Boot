@@ -96,8 +96,10 @@ extern SPI_HandleTypeDef hspi3;
 #define LOG_OK "OK"          // Вместо "Success" или "OK: "
 
 // обмен данными с другими платами
-#define UART_RX_LENGTH 256 + 5 // addres, cmd, size, crc*2
-#define UART_TX_LENGTH 256 + 5 // addres, cmd, size, crc*2
+// Header_t.size — uint8_t, поэтому полный пакет (addr+cmd+size+data+crc*2)
+// не может быть больше 255 байт. Отсюда максимум полезных данных — 250.
+#define UART_RX_LENGTH 250 + 5 // addres, cmd, size, crc*2
+#define UART_TX_LENGTH 250 + 5 // addres, cmd, size, crc*2
 // NVS key
 
 /*

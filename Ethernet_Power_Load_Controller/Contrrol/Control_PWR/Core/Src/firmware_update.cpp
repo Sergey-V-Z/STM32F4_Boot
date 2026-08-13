@@ -432,8 +432,9 @@ uint32_t FirmwareUpdate_EndUpdate() {
 
     }
     
-    // Сбрасываем контекст обновления
-    g_updateContext.status = UPDATE_STATUS_IDLE;
+    // Сбрасываем вспомогательные поля контекста, но не статус: он должен
+    // остаться UPDATE_STATUS_COMPLETE, чтобы хост успел увидеть успешное
+    // завершение при повторном опросе статуса (до перезагрузки или Abort)
     g_updateContext.error = UPDATE_ERROR_NONE;
     g_updateContext.receivedSize = 0;
     g_updateContext.expectedBlockNumber = 0;
@@ -874,8 +875,10 @@ HAL_StatusTypeDef Firmware_Upload_Secondary(DEV_t dev, FirmwareUpdateCellState c
 }
 
 /* Буфер для чанков вторичной прошивки — в CCMRAM, не занимает основной SRAM.
- * Функция TransferFirmwareToSecondaryBoard не реентерабельна (вызывается из одной задачи). */
-#define SECONDARY_CHUNK_SIZE  256U
+ * Функция TransferFirmwareToSecondaryBoard не реентерабельна (вызывается из одной задачи).
+ * 250, а не 256: Header_t.size — uint8_t, полный пакет (addr+cmd+size+data+crc*2)
+ * не может превышать 255 байт, иначе байт size переполняется и пакет бьётся по CRC. */
+#define SECONDARY_CHUNK_SIZE  250U
 static uint8_t s_fw_chunk[SECONDARY_CHUNK_SIZE] __attribute__((section(".ccmram"), used));
 
 // эта функция отвечает за передачу прошивки на вторичную плату работает только с загрузчиком

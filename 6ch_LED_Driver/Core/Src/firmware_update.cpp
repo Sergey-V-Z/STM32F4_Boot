@@ -426,8 +426,9 @@ uint32_t FirmwareUpdate_EndUpdate() {
         return UPDATE_ERROR_INVALID_CMD;
     }
     
-    // Сбрасываем контекст обновления
-    g_updateContext.status = UPDATE_STATUS_IDLE;
+    // Сбрасываем вспомогательные поля контекста, но не статус: он должен
+    // остаться UPDATE_STATUS_COMPLETE, чтобы хост успел увидеть успешное
+    // завершение при повторном опросе статуса (до перезагрузки или Abort)
     g_updateContext.error = UPDATE_ERROR_NONE;
     g_updateContext.receivedSize = 0;
     g_updateContext.expectedBlockNumber = 0;

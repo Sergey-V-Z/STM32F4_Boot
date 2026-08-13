@@ -1,4 +1,4 @@
-#MicroXplorer Configuration settings - do not modify
+кт #MicroXplorer Configuration settings - do not modify
 ADC1.Channel-0\#ChannelRegularConversion=ADC_CHANNEL_4
 ADC1.Channel-1\#ChannelRegularConversion=ADC_CHANNEL_4
 ADC1.Channel-10\#ChannelRegularConversion=ADC_CHANNEL_4

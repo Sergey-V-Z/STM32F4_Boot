@@ -92,9 +92,8 @@ osMutexId poolMutexHandle;
 uint8_t message_rx[message_RX_LENGTH];
 uint8_t UART2_rx[UART2_RX_LENGTH];
 uint16_t indx_message_rx = 0;
-uint16_t indx_UART2_rx = 0;
-uint16_t Size_message = 0;
-uint16_t Start_index = 0;
+volatile uint32_t dbg_rx_callback_count = 0;
+volatile uint16_t dbg_rx_last_size = 0;
 extern osMessageQId rxDataUART2Handle;
 /* USER CODE END PV */
 
@@ -531,56 +530,28 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) {
     if (huart->Instance == USART2) {
-        uint16_t Size_Data = Size - Start_index;
+        dbg_rx_callback_count++;
+        dbg_rx_last_size = Size;
 
-        HAL_UART_RxEventTypeTypeDef rxEventType;
-        rxEventType = HAL_UARTEx_GetRxEventType(huart);
-        switch (rxEventType) {
-        case HAL_UART_RXEVENT_IDLE:
-            // Копируем данные
-            memcpy(&message_rx[indx_message_rx], &UART2_rx[Start_index], Size_Data);
+        if (Size > 0) {
+            memcpy(&message_rx[indx_message_rx], UART2_rx, Size);
+            indx_message_rx += Size;
 
-            if ((message_rx[indx_message_rx + Size_Data - 1] == '\r') ||
-                (message_rx[indx_message_rx + Size_Data - 1] == 0)) {
-                message_rx[indx_message_rx + Size_Data] = 0;
-
-                // Отправляем сообщение в очередь с таймаутом 0
-                osStatus status = osMessagePut(rxDataUART2Handle, (uint32_t)indx_message_rx, 0);
+            if ((message_rx[indx_message_rx - 1] == '\r') ||
+                (message_rx[indx_message_rx - 1] == 0)) {
+                message_rx[indx_message_rx] = 0;
+                osStatus status = osMessagePut(rxDataUART2Handle, 0, 0);
                 if (status != osOK) {
-                    // Если очередь заполнена, очищаем ее
                     osEvent evt;
-                    do {
-                        evt = osMessageGet(rxDataUART2Handle, 0);
-                    } while(evt.status == osEventMessage);
-
-                    // Пытаемся отправить снова
-                    status = osMessagePut(rxDataUART2Handle, (uint32_t)indx_message_rx, 0);
+                    do { evt = osMessageGet(rxDataUART2Handle, 0); }
+                    while (evt.status == osEventMessage);
+                    osMessagePut(rxDataUART2Handle, 0, 0);
                 }
-
-                Size_message = 0;
                 indx_message_rx = 0;
-            } else {
-                indx_message_rx += Size_Data;
             }
-
-            Start_index = Size;
-            break;
-
-        case HAL_UART_RXEVENT_TC:
-            // Копируем в начало буфера
-            memcpy(&message_rx[indx_message_rx], &UART2_rx[Start_index], Size_Data);
-            indx_message_rx += Size_Data;
-            Start_index = 0;
-            break;
-
-        default:
-            STM_LOG("Неизвестный тип события UART: %d", rxEventType);
-            break;
         }
 
-        // Перезапускаем DMA для приема
-        HAL_UARTEx_ReceiveToIdle_DMA(huart, UART2_rx, UART2_RX_LENGTH);
-        __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+        HAL_UARTEx_ReceiveToIdle_IT(huart, UART2_rx, UART2_RX_LENGTH);
     }
 }
 

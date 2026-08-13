@@ -57,7 +57,7 @@ void deserialize_ch_data(uint8_t *buff, uint16_t size, pwm_ch_t *chanels);
 void serialize_ch_data(uint8_t *buff, uint16_t *size, pwm_ch_t *chanels);
 
 void serialize_ret_pwm_data(uint8_t *buff, uint16_t *size, ret_pwm_ch_t *data);
-void deserialize_ret_pwm_data(uint8_t *buff, ret_pwm_ch_t *data);
+void deserialize_ret_pwm_data(uint8_t *buff, uint16_t size, ret_pwm_ch_t *data);
 
 void clear_ret_pwm_data(ret_pwm_ch_t *data);
 void clear_pwm_data(pwm_ch_t *data);

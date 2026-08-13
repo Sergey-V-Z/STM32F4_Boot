@@ -43,7 +43,7 @@
 /**
  * @brief Размер заголовка пакета
  */
-#define PACKET_HEADER_SIZE       12 // command(4) + size(4) + block_number(4)
+#define PACKET_HEADER_SIZE       12 // command(4) + variable(4) + size(4)
 
 /**
  * @brief Размер ответного пакета

@@ -42,7 +42,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000017 // Версия
+#define FIRMWARE_VERSION    32UL // Версия
 #define FIRMWARE_NAME       "6ch_LED_Driver"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
 
@@ -158,6 +158,8 @@ uint16_t usMBCRC16(uint8_t *pucFrame, uint16_t usLen);
 #define HOLD_GPIO_Port GPIOD
 #define DE_M_Pin GPIO_PIN_4
 #define DE_M_GPIO_Port GPIOD
+#define TCA9548A_RST_Pin GPIO_PIN_9
+#define TCA9548A_RST_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 

@@ -256,7 +256,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
     // Разбираем заголовок
     header = (PacketHeader *)g_rxBuffer;
     command = header->command;
-    block_number = header->block_number;
+    block_number = header->variable;
     data_size = header->size;
 
     // Проверяем валидность команды
@@ -279,7 +279,7 @@ static uint8_t ProcessClientRequest(struct netconn *client) {
         case CMD_START_BACKUP_UPDATE:
         {
             // Извлекаем размер и версию прошивки из payload (новый протокол settings_tool)
-            // Заголовок: command(4) + size(4) + block_number(4), size содержит размер payload
+            // Заголовок: command(4) + variable(4) + size(4), size содержит размер payload
             uint32_t fw_size = 0;
             uint32_t fw_version = 0;
             uint32_t payload_size = data_size; // data_size = header.size = размер payload в новом протоколе

@@ -1,4 +1,5 @@
 #include "main.h"
+#include "log_buffer.h"
 
 // Проверка вызова из прерывания
 static uint8_t isInInterrupt(void) {
@@ -50,6 +51,8 @@ void Logger_Init(UART_HandleTypeDef* huart) {
     logger.txBuffer = txBuffer;
     logger.started = 1;
     logger.currentMsgIndex = 0xFF;  // ← ДОБАВЛЕНО: невалидный индекс
+
+    LogBuffer_Init();
 
     memset(messagePoolUsed, 0, sizeof(messagePoolUsed));
 
@@ -154,6 +157,10 @@ void Logger_Log(const char* format, ...) {
     msg->data[length + 2] = '\x04';
     msg->length = length + 3;
 
+    // Дублируем в RAM-кольцевой буфер до постановки в очередь — так копия
+    // не теряется, даже если очередь/пул UART в этот момент переполнены.
+    LogBuffer_Append(msg->data, msg->length);
+
     // Помещаем индекс сообщения в очередь
     osStatus status = osMessagePut(logger.messageQueue, slot, 10);
     if(status != osOK) {
@@ -192,6 +199,9 @@ void Logger_Log_xx(const char* format, ...) {
     }
 
     msg->length = length;
+
+    // Дублируем в RAM-кольцевой буфер до постановки в очередь — см. Logger_Log.
+    LogBuffer_Append(msg->data, msg->length);
 
     osStatus status = osMessagePut(logger.messageQueue, slot, 10);
     if(status != osOK) {

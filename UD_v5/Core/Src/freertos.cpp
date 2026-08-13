@@ -436,8 +436,7 @@ void CallTask(void const * argument)
 void uart_Task(void const * argument)
 {
   /* USER CODE BEGIN uart_Task */
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, UART2_rx, UART2_RX_LENGTH);
-    __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+    HAL_UARTEx_ReceiveToIdle_IT(&huart2, UART2_rx, UART2_RX_LENGTH);
 
     for(;;) {
         // Меньший тайм-аут для лучшей отзывчивости системы

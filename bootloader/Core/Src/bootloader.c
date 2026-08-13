@@ -16,6 +16,28 @@
 #include "bootloader.h"
 #include "crc.h"
 #include "string.h"
+#include <stdarg.h>
+#include <stdio.h>
+
+/**
+ * @brief  Отладочный лог загрузчика через USART6 (тот же физический канал,
+ *         что и Logger_Log приложения), только для диагностики.
+ */
+static void Bootloader_Log(const char *fmt, ...) {
+	char buf[160];
+	va_list args;
+	va_start(args, fmt);
+	int len = vsnprintf(buf, sizeof(buf), fmt, args);
+	va_end(args);
+	if (len <= 0) {
+		return;
+	}
+	if ((size_t) len >= sizeof(buf)) {
+		len = sizeof(buf) - 1;
+	}
+	HAL_UART_Transmit(&huart6, (uint8_t*) buf, (uint16_t) len, 200);
+	HAL_UART_Transmit(&huart6, (uint8_t*) "\r\n", 2, 50);
+}
 
 /* Private typedef -----------------------------------------------------------*/
 typedef void (*pFunction)(void);
@@ -61,7 +83,12 @@ void Bootloader_Init(void) {
 
 	/* Загрузка статуса загрузчика из области BOOT_DATA */
 	boot_data_valid_t ret = Bootloader_LoadStatus(&BootloaderData);
+	Bootloader_Log("[BL] LoadStatus ret=%d state=%d update=%lu ver=0x%08lX size=%lu crc=0x%08lX",
+			ret, BootloaderData.status.State, BootloaderData.main_metadata.update,
+			BootloaderData.main_metadata.firmwareVersion, BootloaderData.main_metadata.firmwareSize,
+			BootloaderData.main_metadata.firmwareCRC);
 	if ((ret == ERR_read_boot_data) || (ret == ERR_nuul_ptr)) {
+		Bootloader_Log("[BL] boot data read error -> ERROR state, waiting for programmer");
 		//HAL_Delay(3000);
 		// перезагрузится
 		//NVIC_SystemReset();
@@ -71,13 +98,17 @@ void Bootloader_Init(void) {
 
 	}else{
 		if((ret == ERR_crc_boot_data) || (ret == EPMTY_boot_data)) {
+			Bootloader_Log("[BL] boot data CRC invalid/empty (ret=%d) -> reinit to defaults", ret);
 			Bootloader_InitStatus(&BootloaderData); // Инициализируем значениями по умолчанию
 			Bootloader_SaveStatus(&BootloaderData);
 		}
 
+		Bootloader_Log("[BL] entering switch, state=%d", BootloaderData.status.State);
+
 		switch (BootloaderData.status.State) {
 
 		case BOOTLOADER_STATE_RECOVERY: {
+			Bootloader_Log("[BL] state=RECOVERY, reason=%d -> return to ProcessState", BootloaderData.status.RecoveryReason);
 			// выйти из функции для восстановления
 			return;
 			break;
@@ -85,7 +116,10 @@ void Bootloader_Init(void) {
 		case BOOTLOADER_STATE_ERROR: {
 			// выяснить причину и выйти из фцнкции для восстановления
 			// проверить прошивку внутри
-			if (Bootloader_ValidateApplication()){
+			uint8_t appValid = Bootloader_ValidateApplication();
+			Bootloader_Log("[BL] state=ERROR, errCode=%lu, appValid=%u, update=%lu",
+					BootloaderData.status.ErrorCode, appValid, BootloaderData.main_metadata.update);
+			if (appValid){
 				BootloaderData.status.State = BOOTLOADER_STATE_JMP_APP;
 				BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_NONE;
 				Bootloader_SaveStatus(&BootloaderData);
@@ -108,21 +142,27 @@ void Bootloader_Init(void) {
 				 }*/
 				// с прошивкой все ок
 				/* Check if metadata indicates valid app */
+				Bootloader_Log("[BL] state=INIT/JMP_APP, internal app valid, update=%lu, reset_counter=%lu",
+						BootloaderData.main_metadata.update, BootloaderData.reset_counter);
 				if (BootloaderData.main_metadata.update == 1) {
+					Bootloader_Log("[BL] update requested -> enter RECOVERY(APP_UPDATE)");
 					// перейти в режим обновления
 					Bootloader_EnterRecoveryMode(RECOVERY_REASON_APP_UPDATE);
 					return;
 				} else {
 					// проверить количество ошибок если превысили то перейти в режим восстановления
 					if (BootloaderData.reset_counter >= MAX_RESET_COUNT) {
+						Bootloader_Log("[BL] reset_counter exceeded -> enter RECOVERY(RESET_COUNT)");
 						Bootloader_EnterRecoveryMode(RECOVERY_REASON_RESET_COUNT);
 						return;
 					}
 
+					Bootloader_Log("[BL] no update pending -> jump to application");
 					// перейти в приложение
 					Bootloader_JumpToApplication();
 				}
 			} else {
+				Bootloader_Log("[BL] internal app invalid -> enter RECOVERY(NO_APP)");
 				// перейти в режим восстановления
 				Bootloader_EnterRecoveryMode(RECOVERY_REASON_NO_APP);
 				return;
@@ -130,6 +170,7 @@ void Bootloader_Init(void) {
 			break;
 		}
 		default: {
+			Bootloader_Log("[BL] unexpected state=%d -> reinit to defaults", BootloaderData.status.State);
 			Bootloader_InitStatus(&BootloaderData); // Инициализируем значениями по умолчанию
 			Bootloader_SaveStatus(&BootloaderData);
 			// перезагрузится
@@ -360,6 +401,9 @@ static void Bootloader_EnterRecoveryMode(Recovery_Reason_t reason) {
  */
 int Bootloader_ProcessState(void) {
 
+	Bootloader_Log("[BL] ProcessState: reason=%d update=%lu", BootloaderData.status.RecoveryReason,
+			BootloaderData.main_metadata.update);
+
 	/* Инициализируем периферию, если не инициализирована */
 	//MX_GPIO_Init();
 	//MX_SPI3_Init();
@@ -370,6 +414,7 @@ int Bootloader_ProcessState(void) {
 
 	/* Инициализация SPI Flash */
 	if (!Bootloader_CheckAndInitFlash()) {
+		Bootloader_Log("[BL] ProcessState: SPI flash init FAILED");
 		BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 		BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_FLASH_INIT_FAILED;
 		Bootloader_SaveStatus(&BootloaderData);
@@ -377,7 +422,11 @@ int Bootloader_ProcessState(void) {
 	}
 
 	// нужно проверить прошивку на внешней флешке проверить что там не пусто, проверить метаданные meta_t находятся в прошивке от начала прошивки по адресу METADATA_ADDRESS
-	if (!SPI_Flash_ValidateFirmware(pSpiFlash, SPI_FLASH_MAIN_FW_ADDRESS)) {
+	uint8_t mainSpiValid = SPI_Flash_ValidateFirmware(pSpiFlash, SPI_FLASH_MAIN_FW_ADDRESS);
+	Bootloader_Log("[BL] ProcessState: SPI_Flash_ValidateFirmware(MAIN)=%u", mainSpiValid);
+	if (!mainSpiValid) {
+		Bootloader_Log("[BL] ProcessState: MAIN firmware in SPI invalid/empty -> clearing update flag, was reason=%d",
+				BootloaderData.status.RecoveryReason);
 		BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 		BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_APP_INVALID;
 		BootloaderData.main_metadata.update = 0;
@@ -393,14 +442,21 @@ int Bootloader_ProcessState(void) {
 	if (BootloaderData.status.RecoveryReason == RECOVERY_REASON_APP_UPDATE) {
 
 		/* Обновление запрошено приложением, используем метаданные из boot_data_t */
-		Bootloader_Install_Firmware(SPI_FLASH_MAIN_FW_ADDRESS);
+		Bootloader_Log("[BL] ProcessState: installing MAIN firmware from SPI, size=%lu crc=0x%08lX ver=0x%08lX",
+				BootloaderData.main_metadata.firmwareSize, BootloaderData.main_metadata.firmwareCRC,
+				BootloaderData.main_metadata.firmwareVersion);
+		int installResult = Bootloader_Install_Firmware(SPI_FLASH_MAIN_FW_ADDRESS);
+		Bootloader_Log("[BL] ProcessState: Install_Firmware(MAIN) result=%d, errCode=%lu, update flag now=%lu",
+				installResult, BootloaderData.status.ErrorCode, BootloaderData.main_metadata.update);
 		Bootloader_SaveStatus(&BootloaderData);
 		/* Перезагрузка для запуска обновленного приложения */
 		NVIC_SystemReset();
 
 	}else if(SPI_Flash_ValidateFirmware(pSpiFlash, SPI_FLASH_BACKUP_FW_ADDRESS)){
 
-		Bootloader_Install_Firmware(SPI_FLASH_BACKUP_FW_ADDRESS);
+		Bootloader_Log("[BL] ProcessState: installing BACKUP firmware from SPI");
+		int installResult = Bootloader_Install_Firmware(SPI_FLASH_BACKUP_FW_ADDRESS);
+		Bootloader_Log("[BL] ProcessState: Install_Firmware(BACKUP) result=%d", installResult);
 		Bootloader_SaveStatus(&BootloaderData);
 		/* Перезагрузка для запуска обновленного приложения */
 		NVIC_SystemReset();
@@ -408,11 +464,13 @@ int Bootloader_ProcessState(void) {
 	}else{
 		/* Резервной прошивки нет, проверяем текущую */
 		if (Bootloader_ValidateApplication()) {
+			Bootloader_Log("[BL] ProcessState: no backup, internal app valid -> JMP_APP");
 			/* Существует прошивка во внутренней флеш-памяти пробуем загрузить */
 			Bootloader_InitStatus(&BootloaderData);
 			BootloaderData.status.State = BOOTLOADER_STATE_JMP_APP;
 			Bootloader_SaveStatus(&BootloaderData);
 		} else {
+			Bootloader_Log("[BL] ProcessState: no backup, internal app invalid -> recovering MAIN from SPI");
 			// пробуем восстановить из внешней основную так как резервной нет
 			if(Bootloader_Install_Firmware(SPI_FLASH_MAIN_FW_ADDRESS))
 			{
@@ -713,11 +771,13 @@ static void Bootloader_IndicateError(Bootloader_Error_t error) {
  */
 int Bootloader_Install_Firmware(uint32_t is_ext_main_app)
 {
+	Bootloader_Log("[BL] Install_Firmware: is_ext_main_app=%lu", is_ext_main_app);
 	if(is_ext_main_app)
 	{
 		/* Проверка размера основной прошивки */
 		if (BootloaderData.main_metadata.firmwareSize == 0 || BootloaderData.main_metadata.firmwareSize > MAIN_PROGRAM_SIZE)
 		{
+			Bootloader_Log("[BL] Install_Firmware: MAIN size invalid (%lu)", BootloaderData.main_metadata.firmwareSize);
 			BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 			BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_APP_INVALID;
 			//Bootloader_SaveStatus(&BootloaderData);
@@ -725,6 +785,7 @@ int Bootloader_Install_Firmware(uint32_t is_ext_main_app)
 		}
 		if(!SPI_Flash_ValidateFirmware(pSpiFlash, SPI_FLASH_MAIN_FW_ADDRESS))
 		{
+			Bootloader_Log("[BL] Install_Firmware: SPI_Flash_ValidateFirmware(MAIN) failed");
 			BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 			BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_APP_INVALID;
 			//Bootloader_SaveStatus(&BootloaderData);
@@ -734,6 +795,7 @@ int Bootloader_Install_Firmware(uint32_t is_ext_main_app)
 		/* Проверка размера резервной прошивки */
 		if (BootloaderData.backup_metadata.firmwareSize == 0 || BootloaderData.backup_metadata.firmwareSize > MAIN_PROGRAM_SIZE)
 		{
+			Bootloader_Log("[BL] Install_Firmware: BACKUP size invalid (%lu)", BootloaderData.backup_metadata.firmwareSize);
 			BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 			BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_APP_INVALID;
 			//Bootloader_SaveStatus(&BootloaderData);
@@ -741,6 +803,7 @@ int Bootloader_Install_Firmware(uint32_t is_ext_main_app)
 		}
 		if(!SPI_Flash_ValidateFirmware(pSpiFlash, SPI_FLASH_BACKUP_FW_ADDRESS))
 		{
+			Bootloader_Log("[BL] Install_Firmware: SPI_Flash_ValidateFirmware(BACKUP) failed");
 			BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 			BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_APP_INVALID;
 			//Bootloader_SaveStatus(&BootloaderData);
@@ -764,6 +827,7 @@ int Bootloader_Install_Firmware(uint32_t is_ext_main_app)
 		/* Копируем прошивку из внешней флеш во внутреннюю */
 		if (Bootloader_CopyFirmwareFromSPI(SPI_FLASH_MAIN_FW_ADDRESS, MAIN_PROGRAM_START_ADDRESS, BootloaderData.main_metadata.firmwareSize)
 				!= HAL_OK) {
+			Bootloader_Log("[BL] Install_Firmware: CopyFirmwareFromSPI(MAIN) FAILED");
 			BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 			BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_FLASH_WRITE_FAILED;
 			//Bootloader_SaveStatus(&BootloaderData);
@@ -777,6 +841,8 @@ int Bootloader_Install_Firmware(uint32_t is_ext_main_app)
 
 		if (!Bootloader_VerifyApplication(BootloaderData.main_metadata.firmwareSize,BootloaderData.main_metadata.firmwareCRC))
 		{
+			Bootloader_Log("[BL] Install_Firmware: VerifyApplication(MAIN) CRC mismatch, expected=0x%08lX",
+					BootloaderData.main_metadata.firmwareCRC);
 			BootloaderData.status.State = BOOTLOADER_STATE_ERROR;
 			BootloaderData.status.ErrorCode = BOOTLOADER_ERROR_CRC_FAILED;
 			//Bootloader_SaveStatus(&BootloaderData);
@@ -784,6 +850,9 @@ int Bootloader_Install_Firmware(uint32_t is_ext_main_app)
 			//NVIC_SystemReset();
 			return 1;
 		}
+
+		Bootloader_Log("[BL] Install_Firmware: MAIN copy+verify OK, ver=0x%08lX",
+				BootloaderData.main_metadata.firmwareVersion);
 
 		/* Индикация успешного обновления */
 		HAL_GPIO_WritePin(R_GPIO_Port, R_Pin, GPIO_PIN_RESET); // Все индикаторы
@@ -989,12 +1058,15 @@ static uint8_t ValidateMetadataCRC(const boot_data_t *data) {
  */
 uint8_t SPI_Flash_ValidateFirmware(W25QXX_Device_t *device, uint32_t flashAddress) {
 	// Проверяем инициализацию устройства
-	if (device == NULL || device->hspi == NULL)
+	if (device == NULL || device->hspi == NULL) {
+		Bootloader_Log("[BL] SPI_Flash_ValidateFirmware(0x%08lX): device/hspi NULL", flashAddress);
 		return 0;
+	}
 
 	// 1. Проверяем наличие данных на указанном адресе
 	if (!W25QXX_CheckDataAtAddress(device, flashAddress, 32)) {
 		// На флеш-памяти нет данных или область пуста (все 0xFF)
+		Bootloader_Log("[BL] SPI_Flash_ValidateFirmware(0x%08lX): area empty (0xFF)", flashAddress);
 		return 0;
 	}
 
@@ -1009,8 +1081,12 @@ uint8_t SPI_Flash_ValidateFirmware(W25QXX_Device_t *device, uint32_t flashAddres
 	// Проверяем ключ метаданных
 	if (metadata.key_start != METADATA_KEY) {
 		// Ключ не совпадает, метаданные невалидны
+		Bootloader_Log("[BL] SPI_Flash_ValidateFirmware(0x%08lX): key mismatch at 0x%08lX, got=0x%08lX expected=0x%08lX",
+				flashAddress, metadataAddress, metadata.key_start, (uint32_t)METADATA_KEY);
 		return 0;
 	}
+
+	Bootloader_Log("[BL] SPI_Flash_ValidateFirmware(0x%08lX): OK, ver=0x%08lX", flashAddress, metadata.version);
 
 	// Проверяем название проекта
 	/*if (strncmp((char*) metadata.name_proj, FIRMWARE_NAME, strlen(FIRMWARE_NAME)) != 0) {

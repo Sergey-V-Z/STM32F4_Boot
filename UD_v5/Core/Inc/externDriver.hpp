@@ -115,6 +115,7 @@ public:
     uint32_t getCurrentSteps();
     bool gotoPoint(uint32_t point_number);
     bool gotoLSwitch(uint8_t sw_x);
+    bool gotoLSwitchDirect(uint8_t sw_x);
     uint32_t getCurrentPoint() { return settings->points.current_point; }
     uint32_t getTargetPoint() { return settings->points.target_point; }
     bool gotoPosition(uint32_t position);
@@ -156,6 +157,7 @@ private:
     static const uint16_t FEEDBACK_MAX_PART  = 0x6000; // Максимальный шаг одного сегмента
     volatile bool isLastSegment = false;                // Флаг последнего сегмента движения
     uint32_t totalRemainingSteps = 0;          // Оставшиеся шаги
+    bool stopOnLimitSwitchOnly = false;        // Ползучий ход: останов только по концевику (C22/C23)
 
     bool validatePointNumber(uint32_t point_number);
     bool validatePosition(uint32_t position);

@@ -42,6 +42,10 @@ using namespace std;
 #include "firmware_update.h"
 #include "protocol.h"
 #include "pwm_controller.h"
+#include "i2c.h"
+#include "tca9548a.h"
+#include "dac_settings.h"
+#include "uart_link.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -99,8 +103,8 @@ extern led_t LED_error;
 extern led_t LED_OSstart;
 
 void action_ip(cJSON *obj, bool save);
-void action_settings_data(cJSON *obj);
-void action_commands(cJSON *obj);
+void action_settings_data(cJSON *obj, struct netconn *tcp_conn = nullptr);
+void action_commands(cJSON *obj, struct netconn *tcp_conn = nullptr);
 //структуры для netcon
 extern struct netif gnetif;
 
@@ -108,13 +112,7 @@ extern struct netif gnetif;
 string strIP;
 string in_str;
 
-// обмен данными с компом
-extern uint8_t message_rx[message_RX_LENGTH];
-extern uint8_t UART_debug_rx[UART6_RX_LENGTH];
-extern uint16_t indx_message_rx;
-extern uint16_t indx_UART6_rx;
-extern uint16_t Size_message;
-extern uint16_t Start_index;
+// обмен данными с компом по UART6 — см. uart_link.cpp/uart_link.h
 
 //переменные переферии
 uint32_t Start = 0;
@@ -134,16 +132,17 @@ osThreadId MBRTUTaskHandle;
 osThreadId MBETHTaskHandle;
 osThreadId uart_taskHandle;
 osThreadId loggerTaskHandle;
-osThreadId fadeTasHandle;
 osMessageQId rxDataUART6Handle;
 osMessageQId rxDataUART1Handle;
 osSemaphoreId ADC_endHandle;
 osSemaphoreId ADC_end2Handle;
 osSemaphoreId Resive_USARTHandle;
 osSemaphoreId mulicom_uartHandle;
+osMutexId dacI2cMutexHandle; // защищает "выбор канала TCA9548A + транзакция MCP4725" (см. tca9548a.h)
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+osThreadId fadeTasHandle;
 // extern "C"
 
 // Функции для работы с датчиком тока ACS712 (DMA режим)
@@ -157,6 +156,7 @@ void Calibration_Save(void);
 void Calibration_Load(void);
 uint32_t Calibration_CalculateCRC(calibration_t* cal);
 
+void fadeTask(void const * argument);
 /* USER CODE END FunctionPrototypes */
 
 void mainTask(void const * argument);
@@ -166,7 +166,6 @@ void mbrtuTask(void const * argument);
 void mbethTask(void const * argument);
 void uart_Task(void const * argument);
 void LoggerTask(void const * argument);
-void fadeTask(void const * argument);
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -199,6 +198,8 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_MUTEX */
 	/* add mutexes, ... */
+	osMutexDef(dacI2cMutex);
+	dacI2cMutexHandle = osMutexCreate(osMutex(dacI2cMutex));
   /* USER CODE END RTOS_MUTEX */
 
   /* Create the semaphores(s) */
@@ -320,8 +321,22 @@ void mainTask(void const * argument)
   	STM_LOG("PWM controller initialized with 6 channels");
   	STM_LOG("ACS712 current sensor initialized (DMA mode)");
   	
-  	// Загружаем калибровочные данные из flash
+  	// Загружаем калибровочные данные ACS712 из flash
   	Calibration_Load();
+
+  	// Поиск адресов MCP4725 на каждом канале мультиплексора (один раз при старте)
+  	DAC_ScanAddresses();
+
+  	// Явно гасим LD на всех каналах: MCP4725 хранит последнее записанное
+  	// значение (Fast Write, не EEPROM) и не сбрасывается при ресете STM32 —
+  	// без этой команды на выводе LD может остаться остаточное напряжение
+  	// с прошлого запуска, и диоды окажутся включены ещё до первой команды.
+  	DAC_ChannelOffAll();
+
+  	// Восстанавливаем уставки (percent/raw PWM/fade duration) из flash.
+  	// Каналы остаются выключенными (бит включения не персистится, см.
+  	// dac_settings.h) — уставки только запоминаются, в ЦАП не пишутся.
+  	DAC_Settings_Load();
 
 	/* Infinite loop */
 	for(;;)
@@ -438,11 +453,40 @@ void eth_Task(void const * argument)
 								netbuf_data(netbuf,&in_data,&data_size);//get pointer and data size of the buffer
 								in_str.assign((char*)in_data, data_size);//copy in string
 								/*-----------------------------------------------------------------------------------------------------------------------------*/
-								STM_LOG("Get CMD %s", in_str.c_str());
+								STM_LOG("TCP CMD: %s", in_str.c_str());
 
 								if (!in_str.empty()) {
-									string resp = Сommand_execution(in_str);
-									netconn_write(newconn, resp.c_str(), resp.size(), NETCONN_COPY);
+									if (in_str[0] == '{') {
+										// JSON protocol (new clients)
+										cJSON *j = cJSON_Parse(in_str.c_str());
+										if (j != NULL) {
+											cJSON *j_id   = cJSON_GetObjectItemCaseSensitive(j, "id");
+											cJSON *j_type = cJSON_GetObjectItemCaseSensitive(j, "type_data");
+											cJSON *j_save = cJSON_GetObjectItemCaseSensitive(j, "save_settings");
+											cJSON *j_obj  = cJSON_GetObjectItemCaseSensitive(j, "obj");
+											if (cJSON_IsNumber(j_id)) {
+												uint32_t rid = (uint32_t)cJSON_GetNumberValue(j_id);
+												if (rid == ID_CTRL || rid == 0) {
+													bool save_set = cJSON_IsTrue(j_save);
+													if (cJSON_IsNumber(j_type)) {
+														switch (j_type->valueint) {
+														case 1: action_ip(j_obj, save_set);           break;
+														case 3: action_commands(j_obj, newconn);      break;
+														case 4: action_settings_data(j_obj, newconn); break;
+														default: break;
+														}
+													}
+												}
+											}
+											cJSON_Delete(j);
+										} else {
+											STM_LOG("TCP: invalid JSON");
+										}
+									} else {
+										// Text protocol CxxAxDyxNzx (third-party software)
+										string resp = Сommand_execution(in_str);
+										netconn_write(newconn, resp.c_str(), resp.size(), NETCONN_COPY);
+									}
 								}
 
 							} while (netbuf_next(netbuf) >= 0);
@@ -510,86 +554,14 @@ void mbethTask(void const * argument)
 void uart_Task(void const * argument)
 {
   /* USER CODE BEGIN uart_Task */
-  // Запускаем прием по UART6 (связь с компьютером)
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart6, UART_debug_rx, UART6_RX_LENGTH);
-  __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT);
+  // Связь с компьютером по UART6 — приём, разбор JSON и диспетчеризация
+  // вынесены в uart_link.cpp (UART_Link_Init/UART_Link_Process)
+  UART_Link_Init();
 
   /* Infinite loop */
   for(;;)
   {
-    // Ожидаем сообщение из очереди
-    osMessageGet(rxDataUART6Handle, osWaitForever);
-
-    // Парсим JSON
-    cJSON *json = cJSON_Parse((char *)message_rx);
-    if (json != NULL)
-    {
-      cJSON *id = cJSON_GetObjectItemCaseSensitive(json, "id");
-      cJSON *type_data = cJSON_GetObjectItemCaseSensitive(json, "type_data");
-      cJSON *save_settings = cJSON_GetObjectItemCaseSensitive(json, "save_settings");
-      cJSON *obj = cJSON_GetObjectItemCaseSensitive(json, "obj");
-
-      if (cJSON_IsNumber(id))
-      {
-        uint32_t received_id = (uint32_t)cJSON_GetNumberValue(id);
-        
-        // Принимаем сообщения для своего ID или широковещательные (id=0)
-        if (received_id == ID_CTRL || received_id == 0)
-        {
-        bool save_set = false;
-        if (cJSON_IsTrue(save_settings))
-        {
-          save_set = true;
-        }
-
-        if (cJSON_IsNumber(type_data))
-        {
-          switch (type_data->valueint)
-          {
-          case 1: // ip settings
-          {
-            action_ip(obj, save_set);
-            break;
-          }
-          case 3: // commands
-          {
-            // Обработка команд управления
-            action_commands(obj);
-            break;
-          }
-          case 4: // get settings
-          {
-            action_settings_data(obj);
-            break;
-          }
-          default:
-          {
-            STM_LOG("data type not registered");
-            break;
-          }
-          }
-        }
-        else
-        {
-          STM_LOG("Invalid type data");
-        }
-        }
-        else
-        {
-          STM_LOG("id not valid");
-        }
-      }
-      else
-      {
-        STM_LOG("id not valid");
-      }
-
-      cJSON_Delete(json);
-    }
-    else
-    {
-      STM_LOG("Invalid JSON");
-    }
+    UART_Link_Process();
     osDelay(10);
   }
   /* USER CODE END uart_Task */
@@ -621,10 +593,22 @@ void fadeTask(void const * argument)
 {
     for (;;)
     {
-        PWM_FadeTick();
+        DAC_FadeTick();
         osDelay(FADE_TICK_MS);
     }
 }
+
+// ---------------------------------------------------------------------------
+// action_ip / action_commands / action_settings_data — общие обработчики
+// JSON-протокола {"id":.., "type_data":N, "obj":{...}}.
+//
+// Вызываются из ДВУХ мест:
+//  - eth_Task (TCP, см. выше) — tcp_conn указывает на активное соединение,
+//    ответ отправляется через netconn_write;
+//  - uart_Task -> UART_Link_Process (UART6, см. uart_link.cpp) — tcp_conn
+//    равен nullptr, ответ уходит обратно на ПК через UART_Link_SendResponse
+//    (см. tcp_or_uart_send ниже).
+// ---------------------------------------------------------------------------
 
 // Получение настроек сети от хоста
 void action_ip(cJSON *obj, bool save)
@@ -892,8 +876,20 @@ void action_ip(cJSON *obj, bool save)
     }
 }
 
+// Отправка ответа на команду: по TCP — в сокет, по UART — через
+// UART_Link_SendResponse (uart_link.cpp), которая помечает ответ
+// терминатором "\x03\x04", чтобы ПК отличил его от строки лога.
+static void tcp_or_uart_send(const char *s, struct netconn *tcp_conn)
+{
+	if (tcp_conn != nullptr) {
+		netconn_write(tcp_conn, s, strlen(s), NETCONN_COPY);
+	} else {
+		UART_Link_SendResponse(s);
+	}
+}
+
 // Обработка команд управления от хоста (type_data=3)
-void action_commands(cJSON *obj)
+void action_commands(cJSON *obj, struct netconn *tcp_conn)
 {
 	if (obj == NULL) {
 		STM_LOG("action_commands: obj is NULL");
@@ -929,10 +925,10 @@ void action_commands(cJSON *obj)
 
 		if (cJSON_IsTrue(all)) {
 			switch (mode) {
-				case 0: PWM_DisableAll();     break;
-				case 1: PWM_EnableAll();      break;
-				case 3: PWM_EnableFadeAll();  break;
-				case 4: PWM_DisableFadeAll(); break;
+				case 0: DAC_ChannelOffAll();     break;
+				case 1: DAC_ChannelOnAll();      break;
+				case 3: DAC_ChannelFadeOnAll();  break;
+				case 4: DAC_ChannelFadeOffAll(); break;
 				default: break;
 			}
 			STM_LOG("All channels mode %d", mode);
@@ -961,10 +957,10 @@ void action_commands(cJSON *obj)
 								ch_m = cJSON_IsTrue(enabled) ? 1 : 0;
 							}
 							switch (ch_m) {
-								case 0: PWM_Disable((PWM_Channel_t)ch_num);     break;
-								case 1: PWM_Enable((PWM_Channel_t)ch_num);      break;
-								case 3: PWM_EnableFade((PWM_Channel_t)ch_num);  break;
-								case 4: PWM_DisableFade((PWM_Channel_t)ch_num); break;
+								case 0: DAC_ChannelOff((uint8_t)ch_num);     break;
+								case 1: DAC_ChannelOn((uint8_t)ch_num);      break;
+								case 3: DAC_ChannelFadeOn((uint8_t)ch_num);  break;
+								case 4: DAC_ChannelFadeOff((uint8_t)ch_num); break;
 								default: break;
 							}
 						}
@@ -975,16 +971,137 @@ void action_commands(cJSON *obj)
 		}
 		break;
 	}
+	// -----------------------------------------------------------------------
+	// Команда 5: установить сырое значение PWM duty (0-1000) — отдельно от
+	// уровня тока ЦАП (cmd 21). Не включает канал (см. PWM_SetValue).
+	// {"cmd":5,"channel":N,"value":V}  — один канал
+	// {"cmd":5,"all":true,"value":V}   — все каналы
+	// -----------------------------------------------------------------------
+	case 5:
+	{
+		cJSON *j_all     = cJSON_GetObjectItemCaseSensitive(obj, "all");
+		cJSON *j_channel = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+		cJSON *j_value   = cJSON_GetObjectItemCaseSensitive(obj, "value");
+
+		if (!cJSON_IsNumber(j_value)) { STM_LOG("C5: missing value"); break; }
+
+		int val = j_value->valueint;
+		if (val < 0) val = 0;
+		if (val > (int)PWM_MAX_VALUE) val = (int)PWM_MAX_VALUE;
+
+		if (cJSON_IsTrue(j_all))
+		{
+			PWM_SetAllChannels((uint16_t)val);
+			STM_LOG("C5: all -> pwm=%d", val);
+		}
+		else if (cJSON_IsNumber(j_channel))
+		{
+			int ch = j_channel->valueint;
+			if (ch >= 0 && ch < (int)PWM_CH_COUNT)
+				PWM_SetValue((PWM_Channel_t)ch, (uint16_t)val);
+		}
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 5);
+		cJSON_AddStringToObject(o, "status", "OK");
+		if (cJSON_IsNumber(j_channel) && !cJSON_IsTrue(j_all))
+		{
+			int ch = j_channel->valueint;
+			cJSON_AddNumberToObject(o, "channel", ch);
+			if (ch >= 0 && ch < (int)PWM_CH_COUNT)
+				cJSON_AddNumberToObject(o, "value", (int)PWM_GetValue((PWM_Channel_t)ch));
+		}
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+	// -----------------------------------------------------------------------
+	// Команда 6: прочитать сырое значение PWM duty всех или одного канала
+	// {"cmd":6}            — все каналы
+	// {"cmd":6,"channel":N} — один канал
+	// -----------------------------------------------------------------------
+	case 6:
+	{
+		cJSON *j_channel = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 6);
+
+		if (cJSON_IsNumber(j_channel))
+		{
+			int ch = j_channel->valueint;
+			if (ch < 0 || ch >= (int)PWM_CH_COUNT) { STM_LOG("C6: bad channel"); break; }
+			cJSON_AddNumberToObject(o, "channel", ch);
+			cJSON_AddNumberToObject(o, "value", (int)PWM_GetValue((PWM_Channel_t)ch));
+		}
+		else
+		{
+			cJSON *arr = cJSON_CreateArray();
+			for (int i = 0; i < (int)PWM_CH_COUNT; i++)
+				cJSON_AddItemToArray(arr, cJSON_CreateNumber((int)PWM_GetValue((PWM_Channel_t)i)));
+			cJSON_AddItemToObject(o, "value", arr);
+		}
+
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
 	case 7: // Управление временем плавного перехода (fade duration)
 	{
 		cJSON *duration_ms = cJSON_GetObjectItemCaseSensitive(obj, "duration_ms");
 		if (cJSON_IsNumber(duration_ms)) {
 			int ms = duration_ms->valueint;
 			if (ms >= 50 && ms <= 10000) {
-				PWM_SetFadeDuration((uint16_t)ms);
+				DAC_SetFadeDuration((uint16_t)ms);
 				STM_LOG("Fade duration set to %d ms", ms);
 			}
 		}
+		break;
+	}
+	// -----------------------------------------------------------------------
+	// Команда 8: проверить включён ли канал (по LD, см. cmd 4)
+	// {"cmd":8}            — все каналы
+	// {"cmd":8,"channel":N} — один канал
+	// -----------------------------------------------------------------------
+	case 8:
+	{
+		cJSON *j_channel = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 8);
+
+		if (cJSON_IsNumber(j_channel))
+		{
+			int ch = j_channel->valueint;
+			if (ch < 0 || ch >= (int)PWM_CH_COUNT) { STM_LOG("C8: bad channel"); break; }
+			cJSON_AddNumberToObject(o, "channel", ch);
+			cJSON_AddNumberToObject(o, "enabled", DAC_ChannelIsOn((uint8_t)ch) ? 1 : 0);
+		}
+		else
+		{
+			cJSON *arr = cJSON_CreateArray();
+			for (int i = 0; i < (int)PWM_CH_COUNT; i++)
+				cJSON_AddItemToArray(arr, cJSON_CreateNumber(DAC_ChannelIsOn((uint8_t)i) ? 1 : 0));
+			cJSON_AddItemToObject(o, "enabled", arr);
+		}
+
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
 		break;
 	}
 	case 9: // Сохранение настроек
@@ -1025,8 +1142,7 @@ void action_commands(cJSON *obj)
 			cJSON_AddItemToObject(response, "obj", resp_obj);
 			
 			char *resp_str = cJSON_Print(response);
-			STM_LOG_xx("%s", resp_str);
-			STM_LOG_xx("\x03\x04");
+			tcp_or_uart_send(resp_str, tcp_conn);
 			cJSON_free(resp_str);
 			cJSON_Delete(response);
 			
@@ -1046,8 +1162,7 @@ void action_commands(cJSON *obj)
 			cJSON_AddItemToObject(response, "obj", resp_obj);
 			
 			char *resp_str = cJSON_Print(response);
-			STM_LOG_xx("%s", resp_str);
-			STM_LOG_xx("\x03\x04");
+			tcp_or_uart_send(resp_str, tcp_conn);
 			cJSON_free(resp_str);
 			cJSON_Delete(response);
 			
@@ -1068,8 +1183,7 @@ void action_commands(cJSON *obj)
 			cJSON_AddItemToObject(response, "obj", resp_obj);
 			
 			char *resp_str = cJSON_Print(response);
-			STM_LOG_xx("%s", resp_str);
-			STM_LOG_xx("\x03\x04");
+			tcp_or_uart_send(resp_str, tcp_conn);
 			cJSON_free(resp_str);
 			cJSON_Delete(response);
 			
@@ -1077,6 +1191,251 @@ void action_commands(cJSON *obj)
 		}
 		break;
 	}
+	// -----------------------------------------------------------------------
+	// Команда 21: установить мощность канала в процентах (0-1000)
+	// {"cmd":21,"channel":N,"percent":P}  — один канал
+	// {"cmd":21,"all":true,"percent":P}   — все каналы
+	// -----------------------------------------------------------------------
+	case 21:
+	{
+		cJSON *j_all     = cJSON_GetObjectItemCaseSensitive(obj, "all");
+		cJSON *j_channel = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+		cJSON *j_percent = cJSON_GetObjectItemCaseSensitive(obj, "percent");
+
+		if (!cJSON_IsNumber(j_percent)) { STM_LOG("C21: missing percent"); break; }
+
+		int pct = j_percent->valueint;
+		if (pct < 0) pct = 0;
+		if (pct > (int)DAC_PERCENT_MAX) pct = (int)DAC_PERCENT_MAX;
+
+		if (cJSON_IsTrue(j_all))
+		{
+			for (int i = 0; i < (int)DAC_CH_COUNT; i++)
+				DAC_SetPercent((uint8_t)i, (uint16_t)pct);
+			STM_LOG("C21: all -> %d.%d%%", pct / 10, pct % 10);
+		}
+		else if (cJSON_IsNumber(j_channel))
+		{
+			int ch = j_channel->valueint;
+			if (ch >= 0 && ch < (int)DAC_CH_COUNT)
+				DAC_SetPercent((uint8_t)ch, (uint16_t)pct);
+		}
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 21);
+		cJSON_AddStringToObject(o, "status", "OK");
+		if (cJSON_IsNumber(j_channel) && !cJSON_IsTrue(j_all))
+		{
+			int ch = j_channel->valueint;
+			cJSON_AddNumberToObject(o, "channel", ch);
+			cJSON_AddNumberToObject(o, "percent", pct);
+			if (ch >= 0 && ch < (int)DAC_CH_COUNT)
+				cJSON_AddNumberToObject(o, "dac_value", (int)g_dac_setpoints[ch]);
+		}
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+
+	// -----------------------------------------------------------------------
+	// Команда 22: прочитать уставки DAC всех или одного канала
+	// {"cmd":22}            — все каналы
+	// {"cmd":22,"channel":N} — один канал
+	// -----------------------------------------------------------------------
+	case 22:
+	{
+		cJSON *j_channel = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 22);
+
+		if (cJSON_IsNumber(j_channel))
+		{
+			int ch = j_channel->valueint;
+			if (ch < 0 || ch >= (int)DAC_CH_COUNT) { STM_LOG("C22: bad channel"); break; }
+			cJSON_AddNumberToObject(o, "channel", ch);
+			cJSON_AddNumberToObject(o, "percent",   (int)g_percent_setpoints[ch]);
+			cJSON_AddNumberToObject(o, "dac_value", (int)g_dac_setpoints[ch]);
+		}
+		else
+		{
+			cJSON *pct_arr = cJSON_CreateArray();
+			cJSON *dac_arr = cJSON_CreateArray();
+			for (int i = 0; i < (int)DAC_CH_COUNT; i++)
+			{
+				cJSON_AddItemToArray(pct_arr, cJSON_CreateNumber((int)g_percent_setpoints[i]));
+				cJSON_AddItemToArray(dac_arr, cJSON_CreateNumber((int)g_dac_setpoints[i]));
+			}
+			cJSON_AddItemToObject(o, "percent",   pct_arr);
+			cJSON_AddItemToObject(o, "dac_value", dac_arr);
+		}
+
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+
+	// -----------------------------------------------------------------------
+	// Команда 23: установить сырое значение DAC (0-4095) — для отладки
+	// {"cmd":23,"channel":N,"dac_value":V}
+	// -----------------------------------------------------------------------
+	case 23:
+	{
+		cJSON *j_channel   = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+		cJSON *j_dac_value = cJSON_GetObjectItemCaseSensitive(obj, "dac_value");
+
+		if (!cJSON_IsNumber(j_channel) || !cJSON_IsNumber(j_dac_value))
+		{ STM_LOG("C23: bad params"); break; }
+
+		int ch  = j_channel->valueint;
+		int val = j_dac_value->valueint;
+		if (ch < 0 || ch >= (int)DAC_CH_COUNT) { STM_LOG("C23: bad channel"); break; }
+		if (val < 0) val = 0;
+		if (val > (int)MCP4725_DAC_MAX) val = (int)MCP4725_DAC_MAX;
+
+		PWM_SetValue((PWM_Channel_t)ch, PWM_MAX_VALUE);
+		DAC_SetRaw((uint8_t)ch, (uint16_t)val);
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 23);
+		cJSON_AddStringToObject(o, "status", "OK");
+		cJSON_AddNumberToObject(o, "channel", ch);
+		cJSON_AddNumberToObject(o, "dac_value", val);
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+
+	// -----------------------------------------------------------------------
+	// Команда 24: прочитать сырое значение DAC канала
+	// {"cmd":24,"channel":N}
+	// -----------------------------------------------------------------------
+	case 24:
+	{
+		cJSON *j_channel = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+		if (!cJSON_IsNumber(j_channel)) { STM_LOG("C24: missing channel"); break; }
+
+		int ch = j_channel->valueint;
+		if (ch < 0 || ch >= (int)DAC_CH_COUNT) { STM_LOG("C24: bad channel"); break; }
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 24);
+		cJSON_AddNumberToObject(o, "channel", ch);
+		cJSON_AddNumberToObject(o, "dac_value", (int)g_dac_setpoints[ch]);
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+
+	// -----------------------------------------------------------------------
+	// Команда 25: выключить канал(ы): DAC=0, PWM=0
+	// {"cmd":25,"channel":N}   — один канал
+	// {"cmd":25,"all":true}    — все каналы
+	// -----------------------------------------------------------------------
+	case 25:
+	{
+		cJSON *j_channel = cJSON_GetObjectItemCaseSensitive(obj, "channel");
+		cJSON *j_all     = cJSON_GetObjectItemCaseSensitive(obj, "all");
+
+		if (cJSON_IsTrue(j_all))
+		{
+			DAC_DisableAll();
+			STM_LOG("C25: all channels disabled");
+		}
+		else if (cJSON_IsNumber(j_channel))
+		{
+			int ch = j_channel->valueint;
+			if (ch >= 0 && ch < (int)DAC_CH_COUNT)
+			{
+				DAC_DisableChannel((uint8_t)ch);
+				STM_LOG("C25: ch%d disabled", ch);
+			}
+		}
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 25);
+		cJSON_AddStringToObject(o, "status", "OK");
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+
+	// -----------------------------------------------------------------------
+	// Команда 26: прочитать результат поиска адресов MCP4725 по каналам
+	// {"cmd":26}
+	// -----------------------------------------------------------------------
+	case 26:
+	{
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 26);
+
+		cJSON *addr_arr  = cJSON_CreateArray();
+		cJSON *found_arr = cJSON_CreateArray();
+		for (int i = 0; i < (int)DAC_CH_COUNT; i++)
+		{
+			cJSON_AddItemToArray(addr_arr,  cJSON_CreateNumber((int)g_mcp4725_addr[i]));
+			cJSON_AddItemToArray(found_arr, cJSON_CreateNumber((int)g_mcp4725_found[i]));
+		}
+		cJSON_AddItemToObject(o, "addr",  addr_arr);
+		cJSON_AddItemToObject(o, "found", found_arr);
+
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+
+	// -----------------------------------------------------------------------
+	// Команда 27: сохранить текущие уставки тока (percent) всех каналов во flash
+	// {"cmd":27}
+	// Бит включения/выключения (cmd 4) НЕ сохраняется — см. dac_settings.h
+	// -----------------------------------------------------------------------
+	case 27:
+	{
+		DAC_Settings_Save();
+
+		cJSON *resp = cJSON_CreateObject();
+		cJSON_AddNumberToObject(resp, "id", ID_CTRL);
+		cJSON_AddNumberToObject(resp, "type_data", 3);
+		cJSON *o = cJSON_CreateObject();
+		cJSON_AddNumberToObject(o, "cmd", 27);
+		cJSON_AddStringToObject(o, "status", "OK");
+		cJSON_AddItemToObject(resp, "obj", o);
+		char *s = cJSON_Print(resp);
+		tcp_or_uart_send(s, tcp_conn);
+		cJSON_free(s); cJSON_Delete(resp);
+		break;
+	}
+
 	default:
 	{
 		STM_LOG("Unknown command: %d", cmd_num);
@@ -1086,7 +1445,7 @@ void action_commands(cJSON *obj)
 }
 
 // Подготовка и отправка настроек сети на хост
-void action_settings_data(cJSON *obj)
+void action_settings_data(cJSON *obj, struct netconn *tcp_conn)
 {
 	cJSON *j_all_settings_obj = cJSON_CreateObject();
 	cJSON *obj_ch = cJSON_CreateArray();
@@ -1137,7 +1496,7 @@ void action_settings_data(cJSON *obj)
 
 		cJSON_AddNumberToObject(temp_obj, "num", ch);
 		cJSON_AddNumberToObject(temp_obj, "pwm", pwm_controller.channels[ch].value);
-		cJSON_AddBoolToObject(temp_obj, "enabled", pwm_controller.channels[ch].enabled);
+		cJSON_AddBoolToObject(temp_obj, "enabled", DAC_ChannelIsOn((uint8_t)ch));
 
 		cJSON_AddItemToArray(obj_ch, temp_obj);
 	}
@@ -1152,39 +1511,27 @@ void action_settings_data(cJSON *obj)
 
 	char *str_to_host = cJSON_Print(j_all_settings_obj);
 
-	STM_LOG("Отправка настроек: %s", str_to_host);
+	STM_LOG("Отправка настроек (len=%u)", (unsigned)strlen(str_to_host));
 
-    // Проверяем размер строки и отправляем частями если нужно
-    size_t total_len = strlen(str_to_host);
-    const size_t chunk_size = MAX_MESSAGE_SIZE - 3;
+	if (tcp_conn != nullptr) {
+		// TCP: LwIP сам разбивает на сегменты
+		netconn_write(tcp_conn, str_to_host, strlen(str_to_host), NETCONN_COPY);
+	} else {
+		// UART: отправляем частями из-за ограничения буфера
+		size_t total_len = strlen(str_to_host);
+		const size_t chunk_size = MAX_MESSAGE_SIZE - 3;
+		size_t offset = 0;
+		while (offset < total_len) {
+			size_t cur = (total_len - offset > chunk_size) ? chunk_size : (total_len - offset);
+			char saved = str_to_host[offset + cur];
+			str_to_host[offset + cur] = '\0';
+			STM_LOG_xx("%s", str_to_host + offset);
+			str_to_host[offset + cur] = saved;
+			offset += cur;
+		}
+		STM_LOG_xx("\x03\x04");
+	}
 
-    if (total_len <= chunk_size) {
-        // Отправляем целиком если размер не превышает MAX_MESSAGE_SIZE
-        STM_LOG_xx("%s", str_to_host);
-        STM_LOG_xx("\x03\x04"); // ETX + EOT
-    } else {
-        // Отправляем частями
-        size_t offset = 0;
-        while (offset < total_len) {
-            size_t current_chunk_size = (total_len - offset > chunk_size) ? chunk_size : (total_len - offset);
-
-            // Временно заменяем символ для создания null-terminated блока
-            char saved_char = str_to_host[offset + current_chunk_size];
-            str_to_host[offset + current_chunk_size] = '\0';
-
-            // Отправляем блок данных
-            STM_LOG_xx("%s", str_to_host + offset);
-
-            // Восстанавливаем символ
-            str_to_host[offset + current_chunk_size] = saved_char;
-
-            offset += current_chunk_size;
-            //osDelay(10);
-        }
-        STM_LOG_xx("\x03\x04"); // ETX + EOT - отправляем только по завершении всей передачи
-    }
-
-    //osDelay(10);
 	cJSON_free(str_to_host);
 	cJSON_Delete(j_all_settings_obj);
 

@@ -247,6 +247,14 @@ uint8_t W25QXX_Init(W25QXX_Device_t *device, SPI_HandleTypeDef *hspi, uint32_t s
 #endif
             break;
 
+        case 0x7018:    //  w25q128 (клон/альтернативная модификация с Memory Type 0x70)
+            device->Info.ID = W25Q128_ID;
+            device->Info.BlockCount = 256;
+#if (INIT_DEBUG == 1)
+            //HAL_UART_Transmit(DEBUG_UART, (uint8_t*)"Chip: w25q128 (non-standard Memory Type 0x70)\n", 47, 1000);
+#endif
+            break;
+
         case 0x4017:    //  w25q64
             device->Info.ID = W25Q64_ID;
             device->Info.BlockCount = 128;

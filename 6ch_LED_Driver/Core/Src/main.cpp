@@ -26,6 +26,7 @@
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
+#include "i2c.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -156,6 +157,7 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_TIM4_Init();
+  MX_I2C3_Init();
   /* USER CODE BEGIN 2 */
 
     // Инициализация PWM контроллера
@@ -335,76 +337,7 @@ void timoutBlink()
     }
 }
 
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-{
-    // Обработка UART1/UART2 удалена - вторичные контроллеры не используются
-
-    if (huart->Instance == DBG_PORT_NAME)
-    {
-        // Проверяем, что DMA_TC флаг установлен
-        while (__HAL_UART_GET_FLAG(huart, UART_FLAG_TC) != SET)
-        {
-            // Ожидаем завершения передачи
-        };
-
-        uint16_t Size_Data = Size - Start_index;
-
-        HAL_UART_RxEventTypeTypeDef rxEventType;
-        rxEventType = HAL_UARTEx_GetRxEventType(huart);
-        switch (rxEventType)
-        {
-        case HAL_UART_RXEVENT_IDLE:
-            // Копируем данные
-            memcpy(&message_rx[indx_message_rx], &UART_debug_rx[Start_index], Size_Data);
-
-            if ((message_rx[indx_message_rx + Size_Data - 1] == '\r') ||
-                (message_rx[indx_message_rx + Size_Data - 1] == 0))
-            {
-                message_rx[indx_message_rx + Size_Data] = 0;
-
-                // Отправляем сообщение в очередь с таймаутом 0
-                osStatus status = osMessagePut(rxDataUART6Handle, (uint32_t)indx_message_rx, 0);
-                if (status != osOK)
-                {
-                    // Если очередь заполнена, очищаем ее
-                    osEvent evt;
-                    do
-                    {
-                        evt = osMessageGet(rxDataUART6Handle, 0);
-                    } while (evt.status == osEventMessage);
-
-                    // Пытаемся отправить снова
-                    status = osMessagePut(rxDataUART6Handle, (uint32_t)indx_message_rx, 0);
-                }
-
-                Size_message = 0;
-                indx_message_rx = 0;
-            }
-            else
-            {
-                indx_message_rx += Size_Data;
-            }
-
-            Start_index = Size;
-            break;
-
-        case HAL_UART_RXEVENT_TC:
-            // Копируем в начало буфера
-            memcpy(&message_rx[indx_message_rx], &UART_debug_rx[Start_index], Size_Data);
-            indx_message_rx += Size_Data;
-            Start_index = 0;
-            break;
-
-        default:
-            STM_LOG("Неизвестный тип события UART: %d", rxEventType);
-            break;
-        }
-
-        // Перезапускаем DMA для приема
-        HAL_UARTEx_ReceiveToIdle_DMA(huart, UART_debug_rx, UART6_RX_LENGTH);
-        __HAL_DMA_DISABLE_IT(&hdma_usart6_rx, DMA_IT_HT);
-    }
-}
+/* HAL_UARTEx_RxEventCallback moved to uart_link.cpp */
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {

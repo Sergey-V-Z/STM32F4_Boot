@@ -43,7 +43,7 @@ extern "C" {
 /* USER CODE BEGIN ET */
 
 // Константы метаданных
-#define FIRMWARE_VERSION    0x00000008  // Версия
+#define FIRMWARE_VERSION    0x00000011  // Версия
 #define FIRMWARE_NAME       "Motor Controller Device"  // Название устройства
 #define METADATA_KEY        0xDEADBEEF  // Ключ для идентификации
 

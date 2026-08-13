@@ -337,19 +337,11 @@ bool extern_driver::startForCall(dir d) {
 
         resetFeedbackCounter();
         feedbackPosition = 0;
-        __HAL_TIM_SET_AUTORELOAD(fbTim, 0xffff);
-        // OC за пределами досягаемости — мотор едет до физического EXTI концевика.
-        // CCW: счётчик растёт от MID вверх → OC=0 ниже MID, никогда не достигнет.
-        // CW:  счётчик падает от MID вниз → OC=0xFFFF выше MID, никогда не достигнет.
-        if (settings->Direct == dir::CCW) {
-            __HAL_TIM_SET_COMPARE(fbTim, chBrake, 0);
-            __HAL_TIM_SET_COMPARE(fbTim, chStop,  0);
-        } else {
-            __HAL_TIM_SET_COMPARE(fbTim, chBrake, 0xFFFF);
-            __HAL_TIM_SET_COMPARE(fbTim, chStop,  0xFFFF);
-        }
-        HAL_TIM_OC_Start_IT(fbTim, chBrake);
-        HAL_TIM_OC_Start_IT(fbTim, chStop);
+        // Калибровка останавливается по EXTI концевика — OC feedback-таймера не нужен.
+        // OC нельзя вынести "за пределы досягаемости": 16-bit счётчик оборачивается
+        // через 32768 шагов от MID и попадает в любое OC-значение.
+        HAL_TIM_OC_Stop_IT(fbTim, chBrake);
+        HAL_TIM_OC_Stop_IT(fbTim, chStop);
 
         Status = statusMotor::ACCEL;
         if (!isEncoderMode()) {
@@ -396,6 +388,7 @@ void extern_driver::stop(statusTarget_t status, bool force_disable) {
 
     ignore_D0 = false;
     ignore_D1 = false;
+    stopOnLimitSwitchOnly = false;
 
     HAL_TIM_OC_Stop_IT(TimFrequencies, ChannelClock);
     // Отключаем EN согласно режиму disable_mode (биты 3:2 поля res1)
@@ -624,6 +617,8 @@ bool extern_driver::Calibration_pool() {
         bool on_D0 = HAL_GPIO_ReadPin(D0_GPIO_Port, D0_Pin) == GPIO_PIN_SET;
         bool on_D1 = HAL_GPIO_ReadPin(D1_GPIO_Port, D1_Pin) == GPIO_PIN_SET;
 
+        STM_LOG("Calib: START mode=%d D0=%d D1=%d", (int)settings->mod_rotation, on_D0, on_D1);
+
         if (on_D1) {
             // Уже на D1 — едем сразу к D0
             STM_LOG("Calib: on D1, moving to D0");
@@ -631,7 +626,7 @@ bool extern_driver::Calibration_pool() {
             calibState = CalibState::MOVE_TO_D0;
         } else {
             // На D0 или в середине — едем к D1
-            STM_LOG("Calib: moving to D1");
+            STM_LOG("Calib: on D0 or middle, moving to D1");
             startForCall(dir::CCW);
             calibState = CalibState::MOVE_TO_D1;
         }
@@ -643,15 +638,20 @@ bool extern_driver::Calibration_pool() {
     {
         if (Status != statusMotor::STOPPED) return false;  // ещё едем
 
-        bool on_D1 = HAL_GPIO_ReadPin(D1_GPIO_Port, D1_Pin) == GPIO_PIN_SET;
-        if (StatusTarget == statusTarget_t::finished && on_D1) {
+        STM_LOG("Calib MOVE_TO_D1: stopped. StatusTarget=%d pos=%d fbPos=%ld",
+                (int)StatusTarget, (int)position, feedbackPosition);
+
+        // position выставляется в ISR (SensHandler) в момент срабатывания датчика —
+        // надёжнее повторного чтения GPIO, которое может дать ложный RESET из-за
+        // механического отскока планки за время ~10мс до следующего опроса.
+        if (StatusTarget == statusTarget_t::finishedByLimitSwitch && position == pos_t::D1) {
             STM_LOG("Calib: reached D1, settling");
             feedbackPosition = 0;
             resetFeedbackCounter();
             calibDelayUntil = HAL_GetTick() + 10;
             calibState = CalibState::AT_D1_SETTLE;
         } else {
-            STM_LOG("Calib: failed to reach D1");
+            STM_LOG("Calib: failed to reach D1. StatusTarget=%d pos=%d", (int)StatusTarget, (int)position);
             calibState = CalibState::ERROR;
         }
         return false;
@@ -672,15 +672,20 @@ bool extern_driver::Calibration_pool() {
     {
         if (Status != statusMotor::STOPPED) return false;  // ещё едем
 
-        bool on_D0 = HAL_GPIO_ReadPin(D0_GPIO_Port, D0_Pin) == GPIO_PIN_SET;
-        if (StatusTarget == statusTarget_t::finished && on_D0) {
+        STM_LOG("Calib MOVE_TO_D0: stopped. StatusTarget=%d pos=%d fbPos=%ld",
+                (int)StatusTarget, (int)position, feedbackPosition);
+
+        // position выставляется в ISR (SensHandler) в момент срабатывания датчика —
+        // надёжнее повторного чтения GPIO, которое может дать ложный RESET из-за
+        // механического отскока планки за время ~10мс до следующего опроса.
+        if (StatusTarget == statusTarget_t::finishedByLimitSwitch && position == pos_t::D0) {
             // stop() уже зафиксировал полный путь D1→D0 в feedbackPosition.
             // feedbackPosition отрицательный (CW от feedbackPosition=0 на D1).
             CallSteps = (uint32_t)abs(feedbackPosition);
             STM_LOG("Calib: done. Steps=%lu", CallSteps);
             calibState = CalibState::DONE;
         } else {
-            STM_LOG("Calib: failed to reach D0");
+            STM_LOG("Calib: failed to reach D0. StatusTarget=%d pos=%d", (int)StatusTarget, (int)position);
             calibState = CalibState::ERROR;
         }
         return false;
@@ -1179,7 +1184,32 @@ bool extern_driver::gotoLSwitch(uint8_t sw_x) {
     STM_LOG("gotoLSwitch: to %s, pos=%ld, steps=%lu",
             direction == dir::CCW ? "D1" : "D0", feedbackPosition, stepsToSwitch);
 
+    // После торможения до расчётной точки мотор продолжит ход на MinSpeed
+    // до фактического срабатывания концевика (защита от смещения во время стоянки).
+    stopOnLimitSwitchOnly = true;
     return start(stepsToSwitch, direction);
+}
+
+// Движение к концевику без торможения (C22A1 / C23A1).
+// Мотор едет на рабочей скорости; останов только по концевику.
+// Используется огромное число шагов — feedbackSetup войдёт в многосегментный режим
+// (isLastSegment=false), OC-прерывания будут только промежуточными, финального стопа
+// по шагам не будет. SensHandler остановит мотор при срабатывании концевика.
+bool extern_driver::gotoLSwitchDirect(uint8_t sw_x) {
+    if (!settings->points.is_calibrated) return false;
+
+    dir direction = (sw_x == 0) ? dir::CW : dir::CCW;
+
+    bool on_D0 = HAL_GPIO_ReadPin(D0_GPIO_Port, D0_Pin) == GPIO_PIN_SET;
+    bool on_D1 = HAL_GPIO_ReadPin(D1_GPIO_Port, D1_Pin) == GPIO_PIN_SET;
+    if (direction == dir::CW  && on_D0) { STM_LOG("gotoLSwitchDirect D0: already at D0"); return false; }
+    if (direction == dir::CCW && on_D1) { STM_LOG("gotoLSwitchDirect D1: already at D1"); return false; }
+
+    settings->Direct = direction;
+    STM_LOG("gotoLSwitchDirect: to %s, full speed", direction == dir::CCW ? "D1" : "D0");
+
+    // 0xFFFFFFFE > FEEDBACK_MAX_PART → многосегментный режим → нет финального стопа по шагам
+    return start(0xFFFFFFFEu, direction);
 }
 
 bool extern_driver::validatePosition(uint32_t position) {
@@ -1745,13 +1775,24 @@ void extern_driver::handleFeedbackStop() {
     uint32_t chStop  = getFeedbackCH_stop();
 
     if (isLastSegment) {
-        // stop() зафиксирует (cnt - MID) в feedbackPosition и сбросит счётчик.
-        stop(statusTarget_t::finished);
-        // Притягиваем к точной цели, если погрешность в пределах 5 шагов.
-        if (targetAbsolutePosition > 0 &&
-            (uint32_t)abs((int32_t)getCurrentSteps() - (int32_t)targetAbsolutePosition) <= 5) {
-            feedbackPosition = (int32_t)targetAbsolutePosition;
-            STM_LOG("Position snapped to target: %lu", targetAbsolutePosition);
+        if (stopOnLimitSwitchOnly) {
+            // Расчётная точка торможения пройдена — мотор затормозил.
+            // Отключаем OC-прерывания: теперь останов только по концевику (SensHandler).
+            // Это защищает от ситуации, когда мотор был смещён и ещё не доехал до концевика.
+            HAL_TIM_OC_Stop_IT(getFeedbackTimer(), getFeedbackCH_brake());
+            HAL_TIM_OC_Stop_IT(getFeedbackTimer(), getFeedbackCH_stop());
+            SET_TIM_ARR_AND_PULSE(TimFrequencies, ChannelClock, MinSpeed);
+            Status = statusMotor::MOTION;
+            STM_LOG("gotoLSwitch crawl: OC disabled, crawling at MinSpeed until limit switch");
+        } else {
+            // stop() зафиксирует (cnt - MID) в feedbackPosition и сбросит счётчик.
+            stop(statusTarget_t::finished);
+            // Притягиваем к точной цели, если погрешность в пределах 5 шагов.
+            if (targetAbsolutePosition > 0 &&
+                (uint32_t)abs((int32_t)getCurrentSteps() - (int32_t)targetAbsolutePosition) <= 5) {
+                feedbackPosition = (int32_t)targetAbsolutePosition;
+                STM_LOG("Position snapped to target: %lu", targetAbsolutePosition);
+            }
         }
     } else {
         // Промежуточный сегмент: мотор продолжает движение.

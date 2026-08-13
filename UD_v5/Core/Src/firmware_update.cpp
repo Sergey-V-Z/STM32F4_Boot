@@ -469,31 +469,22 @@ uint8_t FirmwareUpdate_EndUpdate(uint32_t crc) {
 	// Перезагрузка системы
 	//NVIC_SystemReset();
 
-	// сбросить контекст
-    // Проверяем возможность доступа к контексту
-    if (xSemaphoreTake(g_updateContext.mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        return UPDATE_ERROR_BUSY;
-    }
-
-    // Проверяем, что можно отменить
-    if (g_updateContext.status != UPDATE_STATUS_IN_PROGRESS &&
-        g_updateContext.status != UPDATE_STATUS_COMPLETE) {
+	// Сбрасываем вспомогательные поля контекста, но не статус: он должен
+	// остаться UPDATE_STATUS_COMPLETE (установлен выше), чтобы хост успел
+	// увидеть успешное завершение при повторном опросе статуса (до
+	// перезагрузки или Abort). Этот блок ранее был скопирован из
+	// FirmwareUpdate_AbortUpdate() и ошибочно сбрасывал статус в IDLE.
+    if (xSemaphoreTake(g_updateContext.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        g_updateContext.error = UPDATE_ERROR_NONE;
+        g_updateContext.totalSize = 0;
+        g_updateContext.receivedSize = 0;
+        g_updateContext.expectedBlockNumber = 0;
+        g_updateContext.firmwareVersion = 0;
+        g_updateContext.firmwareCRC = 0;
+        g_updateContext.isBackupUpdate = 0;
+        g_updateContext.declaredCRC = 0;
         xSemaphoreGive(g_updateContext.mutex);
-        return UPDATE_ERROR_SEQ_ERROR;
     }
-
-    // Сбрасываем контекст
-    g_updateContext.status = UPDATE_STATUS_IDLE;
-    g_updateContext.error = UPDATE_ERROR_ABORT;
-    g_updateContext.totalSize = 0;
-    g_updateContext.receivedSize = 0;
-    g_updateContext.expectedBlockNumber = 0;
-    g_updateContext.firmwareVersion = 0;
-    g_updateContext.firmwareCRC = 0;
-    g_updateContext.isBackupUpdate = 0;
-    g_updateContext.declaredCRC = 0;
-
-    xSemaphoreGive(g_updateContext.mutex);
 
     return UPDATE_ERROR_NONE;
 }

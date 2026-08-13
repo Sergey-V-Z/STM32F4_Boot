@@ -454,21 +454,31 @@ string Command_execution(string in_str){
 			    break;
 
 			case CMD_GOTO_SW0:
-					if (pMotor->gotoLSwitch(0)) {
+				if (arr_cmd[i].addres_var == 0) {
+					// A0: с торможением, ползучий ход до концевика
+					if (pMotor->gotoLSwitch(0))
 						arr_cmd[i].err = " OK ";
-					} else {
-			            arr_cmd[i].err = " Error moving to sw0 ";
-			            arr_cmd[i].f_bool = true;
-					}
+					else { arr_cmd[i].err = " Error moving to sw0 "; arr_cmd[i].f_bool = true; }
+				} else if (arr_cmd[i].addres_var == 1) {
+					// A1: полная скорость, без торможения, только концевик
+					if (pMotor->gotoLSwitchDirect(0))
+						arr_cmd[i].err = " OK ";
+					else { arr_cmd[i].err = " Error moving to sw0 "; arr_cmd[i].f_bool = true; }
+				}
 			    break;
 
 			case CMD_GOTO_SW1:
-					if (pMotor->gotoLSwitch(1)) {
+				if (arr_cmd[i].addres_var == 0) {
+					// A0: с торможением, ползучий ход до концевика
+					if (pMotor->gotoLSwitch(1))
 						arr_cmd[i].err = " OK ";
-					} else {
-						arr_cmd[i].err = " Error moving to sw1 ";
-						arr_cmd[i].f_bool = true;
-					}
+					else { arr_cmd[i].err = " Error moving to sw1 "; arr_cmd[i].f_bool = true; }
+				} else if (arr_cmd[i].addres_var == 1) {
+					// A1: полная скорость, без торможения, только концевик
+					if (pMotor->gotoLSwitchDirect(1))
+						arr_cmd[i].err = " OK ";
+					else { arr_cmd[i].err = " Error moving to sw1 "; arr_cmd[i].f_bool = true; }
+				}
 			    break;
 
 			case CMD_GOTO_POINT:
@@ -558,10 +568,23 @@ string Command_execution(string in_str){
 				break;
 			case 33: // принудительно отключение драйвера мотора (EN)
 				if(arr_cmd[i].addres_var >= 1){
-					// Включить драйвер
-					pMotor->disableDriver();
-					arr_cmd[i].err = " OK ";
+					if (arr_cmd[i].data_in >= 1)
+					{
+						// Выключить драйвер
+						pMotor->enableDriver();
+						arr_cmd[i].err = " OK ";
+					}
+					else
+					{
+						// Включить драйвер
+						pMotor->disableDriver();
+						arr_cmd[i].err = " OK ";
+					}
+					
+					
+
 				}
+
 			    break;
 			default:
 				arr_cmd[i].err = "Command does not exist";
